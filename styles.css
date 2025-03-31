@@ -1,0 +1,262 @@
+/* HTML预览样式 */
+.enhanced-publisher-preview {
+    padding: 20px;
+    background-color: white;
+    color: black;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* 发布平台选择器样式 */
+.enhanced-publisher-platform-selector {
+    margin-bottom: 15px;
+}
+
+/* 发布按钮样式 */
+.enhanced-publisher-publish-button {
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    width: 50px;
+}
+
+.enhanced-publisher-publish-button:hover {
+    background-color: var(--interactive-accent-hover);
+}
+
+/* 微信公众号设置输入框样式 */
+.setting-item.wechat-setting-appid input,
+.setting-item.wechat-setting-appsecret input {
+    width: 300px; /* 增加输入框宽度 */
+}
+
+/* 封面图选择样式 */
+.wechat-cover-image-modal {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    box-sizing: border-box;
+}
+
+.mod-publish .modal-content {
+    border-top: none !important;
+}
+
+/* 封面图选择模态窗口样式 */
+.modal.mod-wechat-cover,
+.modal.mod-publish {
+    width: 700px !important;
+    max-width: 85vw !important;
+    height: 600px !important;
+    max-height: 80vh !important;
+    overflow-y: hidden;
+}
+
+.modal.mod-wechat-cover .modal-content,
+.modal.mod-publish .modal-content {
+    height: 100%;
+    padding: 16px !important;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+}
+
+/* 标签页容器 */
+.wechat-cover-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--background-modifier-border);
+    margin-bottom: 15px;
+    width: 100%;
+}
+
+/* 内容区容器 */
+.wechat-cover-content {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 素材库内容区和本地上传内容区共用样式 */
+.wechat-material-content,
+.wechat-local-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+/* 显示当前活动的内容区 */
+.wechat-material-content.active,
+.wechat-local-content.active {
+    visibility: visible;
+}
+
+/* 修改本地上传内容区样式 */
+.wechat-local-content {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.wechat-local-content .file-input-container {
+    width: 100%;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.wechat-local-content .image-preview-container {
+    width: 300px;
+    margin-bottom: 20px;
+}
+
+.wechat-local-content .image-preview {
+    width: 100%;
+    height: 200px;
+    border: 1px dashed var(--background-modifier-border);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--background-secondary);
+}
+
+/* 网格容器 */
+.material-grid {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(4, 160px);
+    gap: 10px;
+    padding: 0;
+    margin: 0;
+    align-content: start;
+}
+
+/* 分页容器 */
+.pagination-container {
+    margin-top: 16px;
+    padding: 10px 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+/* 底部按钮容器 */
+.wechat-cover-buttons {
+    margin-top: 16px;
+    text-align: right;
+    padding-top: 16px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.wechat-cover-tab {
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.wechat-cover-tab:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.wechat-cover-tab.active {
+    border-bottom: 2px solid var(--interactive-accent);
+}
+
+.material-item {
+    width: 160px !important; /* 固定宽度 */
+    margin: 0 !important;
+    padding: 8px !important;
+    box-sizing: border-box !important;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.material-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.material-item img {
+    width: 144px !important; /* 160px - 2*8px padding */
+    height: 100px !important;
+    object-fit: cover;
+    border-radius: 4px;
+    margin-bottom: 6px;
+}
+
+.enhanced-publisher-cover-preview {
+    width: 120px;
+    height: 80px;
+    border: 1px dashed var(--background-modifier-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 4px;
+    background-color: var(--background-secondary);
+}
+
+.enhanced-publisher-cover-preview img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.confirm-button {
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    padding: 8px 16px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: background-color 0.2s ease;
+}
+
+.confirm-button:hover {
+    background-color: var(--interactive-accent-hover);
+}
+
+.pagination-container button {
+    padding: 5px 10px;
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.pagination-container button:hover:not(:disabled) {
+    background-color: var(--interactive-accent-hover);
+}
+
+.pagination-container button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.pagination-container span {
+    margin: 0 10px;
+    font-size: 14px;
+}
+
+.modal-close-button {
+    position: absolute !important; /* 改为absolute而不是fixed */
+    right: 12px !important;
+    top: 12px !important;
+    z-index: 1000 !important;
+}

@@ -1,0 +1,21 @@
+# 开发环境
+.cursorrules
+node_modules/
+.DS_Store
+.vscode/
+.idea/
+
+# 构建输出
+dist/
+build/
+*.js.map
+
+# 配置文件
+data.json
+.env
+.env.*
+
+# 临时文件
+*.log
+*.tmp
+.cache/
