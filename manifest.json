@@ -3,8 +3,8 @@
 	"name": "Enhanced Publisher",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "增强的Obsidian发布插件，支持图片自动存储、HTML预览和发布到微信公众号等内容平台",
-	"author": "cubecoder",
+	"description": "增强发布插件，支持图片自动存储、HTML预览和发布到微信公众号等内容平台",
+	"author": "cube",
 	"authorUrl": "https://github.com/chararch",
 	"isDesktopOnly": false
 } 
