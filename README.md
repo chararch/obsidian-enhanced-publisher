@@ -55,7 +55,7 @@
 1. 拥有一个微信公众号（服务号）
 2. 获取AppID和AppSecret
 3. 在插件设置中配置这些信息
-4. 在公众号后台的“开发接口管理-基本配置”页面将自己的公网出口IP添加到IP白名单
+4. 在公众号后台的"开发接口管理-基本配置"页面将自己的公网出口IP添加到IP白名单
 
 ## 注意事项
 
@@ -66,3 +66,13 @@
 ## 许可证
 
 MIT 
+
+## 致谢与归属
+
+本项目是原创开发，使用了以下开源工具和库：
+
+- 使用 [TypeScript](https://www.typescriptlang.org/) (Apache-2.0许可证) 开发
+- 使用 [esbuild](https://esbuild.github.io/) (MIT许可证) 进行构建
+- 使用 [Obsidian API](https://github.com/obsidianmd/obsidian-api) 进行插件开发
+
+本项目不包含直接复制或修改自其他Obsidian插件的代码。如果您认为存在未归属的代码，请联系作者。 
