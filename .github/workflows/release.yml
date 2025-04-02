@@ -1,42 +1,51 @@
 name: Release Obsidian Plugin
 
 on:
-  push:
-    tags:
-      - '*' # Trigger on tag push
+  release:
+    types: [published] # 修改触发器：在Release被发布时触发
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3 # Checkout your repository code
+      - name: Checkout code
+        uses: actions/checkout@v3 # 获取你的代码
 
-      - name: Use Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16' # Or your preferred version
+          node-version: '16' # 或者你需要的Node.js版本
 
       - name: Install dependencies
         run: npm install
 
-      - name: Build plugin            # <--- 你的构建步骤
-        run: npm run build
+      - name: Build plugin
+        run: npm run build # 运行构建命令，生成 main.js
 
-      - name: Create Obsidian Release ZIP  # <--- 新增或修改的打包步骤
+      - name: Prepare Release Files
         run: |
-          mkdir plugin-release        # 创建一个临时目录
-          cp main.js manifest.json styles.css plugin-release/  # 复制必要文件到临时目录 (如果styles.css不存在，去掉它)
-          cd plugin-release           # 进入临时目录
-          zip ../obsidian-enhanced-publisher-${{ github.ref_name }}.zip ./*  # 在临时目录内部创建zip，只包含文件
+          mkdir plugin-release # 创建临时目录
+          cp main.js manifest.json plugin-release/ # 复制必要文件
+          # 如果 styles.css 存在，也复制它。如果不存在，忽略错误。
+          cp styles.css plugin-release/ || true
 
-      - name: Upload Release Asset    # <--- 上传你创建的zip包
+      - name: Create ZIP archive
+        run: |
+          cd plugin-release # 进入临时目录
+          # 将目录内容打包成zip，文件名包含版本号（即tag名）
+          zip ../obsidian-enhanced-publisher-${{ github.ref_name }}.zip ./*
+
+      - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 使用GitHub提供的token进行认证
         with:
-          upload_url: ${{ github.event.release.upload_url }} # If triggered by release event
-          # upload_url: ${{ steps.create_release.outputs.upload_url }} # If creating release in the workflow
+          # upload_url 是 GitHub 在触发 release 事件时提供的，用于上传附件
+          upload_url: ${{ github.event.release.upload_url }}
+          # 指定要上传的zip文件的路径
           asset_path: ./obsidian-enhanced-publisher-${{ github.ref_name }}.zip
+          # 指定上传后在Release页面显示的文件名
           asset_name: obsidian-enhanced-publisher-${{ github.ref_name }}.zip
+          # 指定文件类型
           asset_content_type: application/zip
