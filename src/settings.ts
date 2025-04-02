@@ -6,12 +6,14 @@ export interface EnhancedPublisherSettings {
 	wechatAppSecret: string;
 	autoSaveImages: boolean;
 	hideImageFolders: boolean;
+	debugMode: boolean;
 }
 
 // 定义插件接口以避免循环导入
 interface EnhancedPublisherPluginInterface extends Plugin {
 	settings: EnhancedPublisherSettings;
 	saveSettings(): Promise<void>;
+	fileExplorerEnhancer: any;
 }
 
 // 默认设置
@@ -19,7 +21,8 @@ export const DEFAULT_SETTINGS: EnhancedPublisherSettings = {
 	wechatAppId: '',
 	wechatAppSecret: '',
 	autoSaveImages: true,
-	hideImageFolders: true
+	hideImageFolders: true,
+	debugMode: false
 }
 
 // 设置选项卡
@@ -37,7 +40,7 @@ export class EnhancedPublisherSettingTab extends PluginSettingTab {
 
 		// 使用设置项作为主标题
 		new Setting(containerEl)
-			.setName('增强发布插件设置')
+			.setName('基本')
 			.setHeading();
 
 		// 图片自动保存设置
@@ -60,13 +63,26 @@ export class EnhancedPublisherSettingTab extends PluginSettingTab {
 				.onChange(async (value) => {
 					this.plugin.settings.hideImageFolders = value;
 					await this.plugin.saveSettings();
+					// 更新文件浏览器增强器的隐藏状态
+					this.plugin.fileExplorerEnhancer.setAssetFolderVisibility(value);
 					// 立即更新可见性
 					new Notice(`图片文件夹已${value ? '隐藏，可点击文档查看图片' : '显示'}`);
+				}));
+		
+		// 调试模式设置
+		new Setting(containerEl)
+			.setName('调试模式')
+			.setDesc('启用后将显示详细的调试日志信息')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.debugMode)
+				.onChange(async (value) => {
+					this.plugin.settings.debugMode = value;
+					await this.plugin.saveSettings();
 				}));
 
 		// 添加微信公众号分组标题
 		new Setting(containerEl)
-			.setName('微信公众号设置')
+			.setName('微信公众号')
 			.setHeading();
 		
 		new Setting(containerEl)

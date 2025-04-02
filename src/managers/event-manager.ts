@@ -5,6 +5,7 @@ import { DocumentManager } from './document-manager';
 import { FileExplorerEnhancer } from './file-explorer-enhancer';
 import { ViewManager } from './view-manager';
 import EnhancedPublisherPlugin from '../main';
+import { Logger } from '../utils/logger';
 
 /**
  * 事件管理器 - 负责处理Obsidian事件和自定义事件
@@ -18,6 +19,7 @@ export class EventManager {
     private fileExplorerEnhancer: FileExplorerEnhancer;
     private viewManager: ViewManager;
     private events: Events;
+    private logger: Logger;
     
     // 事务跟踪 - 解决重命名事件重复处理问题
     private _currentRenameTransactionId?: string;
@@ -42,6 +44,7 @@ export class EventManager {
         this.fileExplorerEnhancer = fileExplorerEnhancer;
         this.viewManager = viewManager;
         this.events = new Events();
+        this.logger = Logger.getInstance(app);
     }
 
     /**
@@ -117,10 +120,6 @@ export class EventManager {
     public registerEvents(): void {
         // 监听文件重命名事件
         this._renameEventListener = (file: TAbstractFile, oldPath: string) => {
-            // 如果隐藏图片文件夹，则不处理重命名事件
-            if (!this.plugin.settings.hideImageFolders) {
-                return;
-            }
             // 忽略相同路径的重命名
             if (file.path === oldPath) {
                 return;
@@ -142,7 +141,7 @@ export class EventManager {
                     // 如果图片在资源文件夹中，处理图片重命名
                     if (this.isInAssetFolder(file.path)) {
                         try {
-                            this.handleImageFileRename(file, oldPath);
+                            this.handleImageRename(oldPath, file as TFile);
                         } catch (e) {
                             console.error("处理图片重命名时出错:", e);
                         }
@@ -254,60 +253,39 @@ export class EventManager {
     }
 
     /**
-     * 处理图片文件重命名
-     * @param file 重命名后的图片文件
-     * @param oldPath 旧路径
+     * 处理图片重命名事件
      */
-    private async handleImageFileRename(file: TFile, oldPath: string): Promise<void> {
-        if (!this.isImageFile(file.path) || file.path === oldPath) {
-            return;
-        }
+    private async handleImageRename(oldPath: string, file: TFile): Promise<void> {
+        // 获取旧的图片名称
+        const oldImageName = oldPath.split('/').pop() || '';
         
-        console.log(`[图片重命名] 处理图片重命名：${oldPath} -> ${file.path}`);
+        this.logger.debug(`处理图片重命名：${oldPath} -> ${file.path}`);
         
-        // 检查是否正在处理文档重命名事务
-        if (this._isDocumentRenameInProgress) {
-            // 如果处于文档重命名过程中，此事件是由文档重命名触发的
-            // 标记此路径已处理，避免重复处理
-            this.markPathAsProcessedInTransaction(file.path);
-            return;
-        }
+        // 暂停DOM观察器，避免重复处理
+        this.fileExplorerEnhancer.prepareMutationObserver(false);
         
-        // 1. 先获取与图片资源文件夹关联的文档（如果有）
-        const associatedDocPath = this.assetManager.getDocumentPathFromImagePath(file.path);
-        
-        // 2. 使用优化的搜索方法查找引用该图片的所有文档
-        console.log(`[图片重命名] 搜索引用图片的文档...`);
-        const referencingDocs = await this.documentManager.findDocumentsReferencingImage(oldPath);
-        console.log(`[图片重命名] 找到 ${referencingDocs.length} 个引用该图片的文档`);
-        
-        // 3. 更新所有引用文档
-        let updatedCount = 0;
-        let updatedPaths: string[] = [];
-        
-        for (const docFile of referencingDocs) {
-            console.log(`[图片重命名] 更新文档 ${docFile.path} 中的图片引用`);
-            // 更新文档中的图片引用
-            const updated = await this.documentManager.updateImageReference(docFile, oldPath, file.path);
+        try {
+            // 搜索引用该图片的文档
+            this.logger.debug(`搜索引用图片的文档...`);
+            const referencingDocs = await this.documentManager.findReferencingDocs(oldImageName);
+            this.logger.debug(`找到 ${referencingDocs.length} 个引用该图片的文档`);
             
-            if (updated) {
-                updatedCount++;
-                updatedPaths.push(docFile.path);
+            // 更新每个文档中的图片引用
+            let updatedCount = 0;
+            for (const docFile of referencingDocs) {
+                this.logger.debug(`更新文档 ${docFile.path} 中的图片引用`);
+                const updated = await this.documentManager.updateImageReference(docFile, oldPath, file.path);
+                if (updated) {
+                    updatedCount++;
+                }
             }
+            
+            this.logger.debug(`已更新 ${updatedCount} 个文档的图片引用`);
+            
+        } finally {
+            // 恢复DOM观察器
+            this.fileExplorerEnhancer.prepareMutationObserver(true);
         }
-        
-        console.log(`[图片重命名] 已更新 ${updatedCount} 个文档的图片引用`);
-        
-        // 4. 刷新所有更新过的文档视图
-        for (const docPath of updatedPaths) {
-            this.viewManager.refreshDocumentView(docPath);
-        }
-        
-        // 5. 如果有关联文档但未被更新（可能是引用格式不同），也刷新它
-        if (associatedDocPath && !updatedPaths.includes(associatedDocPath)) {
-            this.viewManager.refreshDocumentView(associatedDocPath);
-        }
-        new Notice(`已更新 ${updatedCount} 个文档的引用`);
     }
 
     /**

@@ -2,6 +2,7 @@ import { App, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
 import { CONSTANTS } from '../constants';
 import { AssetManager } from './asset-manager';
 import { ViewManager } from './view-manager';
+import { Logger } from '../utils/logger';
 
 /**
  * 文件浏览器增强器 - 负责处理文件浏览器的显示和交互增强
@@ -22,11 +23,13 @@ export class FileExplorerEnhancer {
     private _processingRenamePaths = new Set<string>();
     private _lastRenameStack = '';
     private _currentTransactionId?: string;
+    private logger: Logger;
 
     constructor(app: App, assetManager: AssetManager, viewManager: ViewManager) {
         this.app = app;
         this.assetManager = assetManager;
         this.viewManager = viewManager;
+        this.logger = Logger.getInstance(app);
     }
 
     /**
@@ -36,7 +39,7 @@ export class FileExplorerEnhancer {
     public initialize(isHidingAssetFolders: boolean): void {
         this.findFileExplorerLeaf();
         this.registerEventListeners();
-        this.applyAssetFolderVisibility(isHidingAssetFolders);
+        this.setAssetFolderVisibility(isHidingAssetFolders);
     }
 
     /**
@@ -87,7 +90,7 @@ export class FileExplorerEnhancer {
             // 4. 重建文档指示器
             this.rebuildDocumentIndicator(newPath);
         } catch (e) {
-            console.error(`[文件浏览器] 处理文档重命名时出错:`, e);
+            this.logger.error(`处理文档重命名时出错:`, e);
         }
     }
 
@@ -96,7 +99,7 @@ export class FileExplorerEnhancer {
      * @param docPath 文档路径
      */
     private rebuildDocumentIndicator(docPath: string): void {
-        console.log(`[文件浏览器-重建] 开始重建文档指示器: ${docPath}`);
+        this.logger.debug(`开始重建文档指示器: ${docPath}`);
         
         // 1. 查找文档元素 - 可能需要等待DOM更新
         let attempts = 0;
@@ -119,12 +122,12 @@ export class FileExplorerEnhancer {
             if (!docElement || !folderElement) {
                 attempts++;
                 if (attempts < maxAttempts) {
-                    console.log(`[文件浏览器-重建] 未找到文档或资源文件夹元素，第${attempts}次尝试: ${docPath} ${folderPath}`);
+                    this.logger.debug(`未找到文档或资源文件夹元素，第${attempts}次尝试: ${docPath} ${folderPath}`);
                     // 使用requestAnimationFrame等待下一帧
                     window.requestAnimationFrame(findAndEnhanceElement);
                     return;
                 } else {
-                    console.log(`[文件浏览器-重建] 多次尝试后仍未找到文档或资源文件夹元素: ${docPath} ${folderPath}`);
+                    this.logger.debug(`多次尝试后仍未找到文档或资源文件夹元素: ${docPath} ${folderPath}`);
                     return;
                 }
             }
@@ -185,15 +188,10 @@ export class FileExplorerEnhancer {
     }
 
     /**
-     * 切换资源文件夹隐藏状态
+     * 设置资源文件夹可见性
      * @param isHiding 是否隐藏
      */
-    public toggleAssetFolderVisibility(isHiding: boolean): void {
-        this.applyAssetFolderVisibility(isHiding);
-    }
-
-    private applyAssetFolderVisibility(isHiding: boolean): void {
-        
+    public setAssetFolderVisibility(isHiding: boolean): void {
         // 更新状态
         this.isHidden = isHiding;
         
@@ -417,11 +415,11 @@ export class FileExplorerEnhancer {
      * 增强文件浏览器，添加图片折叠功能
      */
     public enhanceFileExplorer(): void {
-        console.log('[FileExplorerEnhancer] 开始增强文件浏览器');
+        this.logger.debug('开始增强文件浏览器');
         
         // 检查环境条件
         if (!this.isHidden) {
-            console.log('[FileExplorerEnhancer] 图片文件夹未隐藏，不需要增强');
+            this.logger.debug('图片文件夹未隐藏，不需要增强');
             return;
         }
         
@@ -429,7 +427,7 @@ export class FileExplorerEnhancer {
         const attemptProcessFolders = async (retryCount: number = 0, maxRetries: number = 5): Promise<void> => {
             // 如果达到最大重试次数，停止
             if (retryCount > maxRetries) {
-                console.log(`[FileExplorerEnhancer] 已达到最大重试次数 ${maxRetries}，停止处理`);
+                this.logger.debug(`已达到最大重试次数 ${maxRetries}，停止处理`);
                 return;
             }
             
@@ -437,7 +435,7 @@ export class FileExplorerEnhancer {
             if (!this.fileExplorerLeaf) {
                 this.findFileExplorerLeaf();
                 if (!this.fileExplorerLeaf) {
-                    console.log('[FileExplorerEnhancer] 未找到文件浏览器叶子，等待后重试');
+                    this.logger.debug('未找到文件浏览器叶子，等待后重试');
                     
                     // 延迟后重试
                     setTimeout(() => attemptProcessFolders(retryCount + 1, maxRetries), 100);
@@ -447,12 +445,12 @@ export class FileExplorerEnhancer {
             
             // 查找资源文件夹
             const assetFolders = await this.assetManager.detectAssetFolders();
-            console.log(`[FileExplorerEnhancer] 发现 ${assetFolders.size} 个资源文件夹，处理中...`);
+            this.logger.debug(`发现 ${assetFolders.size} 个资源文件夹，处理中...`);
             
             // 检查文件浏览器元素是否可访问
             const fileExplorerEl = this.getFileExplorerElement();
             if (!fileExplorerEl) {
-                console.log('[FileExplorerEnhancer] 文件浏览器元素不可访问，等待后重试');
+                this.logger.debug('文件浏览器元素不可访问，等待后重试');
                 setTimeout(() => attemptProcessFolders(retryCount + 1, maxRetries), 100);
                 return;
             }
@@ -484,7 +482,7 @@ export class FileExplorerEnhancer {
                 
                 // 如果两个元素都找到了
                 if (docElement && folderElement) {
-                    console.log(`[FileExplorerEnhancer] 处理文档: ${docPath}`);
+                    this.logger.debug(`处理文档: ${docPath}`);
                     this.enhanceDocumentElement(docElement, docPath, folderElement, folderPath);
                     processedCount++;
                 } else {
@@ -493,13 +491,13 @@ export class FileExplorerEnhancer {
                 }
             }
             
-            console.log(`[FileExplorerEnhancer] 成功处理 ${processedCount} 个文档，待处理 ${pendingDocs.length} 个`);
+            this.logger.debug(`成功处理 ${processedCount} 个文档，待处理 ${pendingDocs.length} 个`);
             
             // 如果还有未处理的文档，且未达到最大重试次数，安排下一次重试
             if (pendingDocs.length > 0 && retryCount < maxRetries) {
                 // 指数退避策略 - 重试间隔随着重试次数增加而增加，但不超过1秒
                 const delay = Math.min(100 * Math.pow(1.5, retryCount), 1000);
-                console.log(`[FileExplorerEnhancer] 将在 ${delay}ms 后重试未处理的 ${pendingDocs.length} 个文档`);
+                this.logger.debug(`将在 ${delay}ms 后重试未处理的 ${pendingDocs.length} 个文档`);
                 
                 setTimeout(() => attemptProcessFolders(retryCount + 1, maxRetries), delay);
             }
@@ -529,7 +527,7 @@ export class FileExplorerEnhancer {
         
         // 检查标题元素是否已经处理过
         if (titleElement.querySelector('.image-expand-indicator')) {
-            console.log(`[FileExplorerEnhancer] 文档已有指示器，跳过: ${docPath}`);
+            this.logger.debug(`文档已有指示器，跳过: ${docPath}`);
             return;
         }
         
@@ -548,7 +546,7 @@ export class FileExplorerEnhancer {
         // 3. 检查现有容器，避免创建重复的容器
         const existingContainer = document.querySelector(`.document-images-container[data-doc-path="${docPath}"]`);
         if (existingContainer) {
-            console.log(`[FileExplorerEnhancer] 文档已有图片容器，跳过创建: ${docPath}`);
+            this.logger.debug(`文档已有图片容器，跳过创建: ${docPath}`);
             return;
         }
 
@@ -575,10 +573,24 @@ export class FileExplorerEnhancer {
         indicator.classList.add('tree-item-icon', 'collapse-icon', 'image-expand-indicator');
         indicator.classList.toggle('is-collapsed', !isExpanded);
         
-        // 设置图标
-        indicator.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon right-triangle">
-            <path d="M3 8L12 17L21 8"></path>
-        </svg>`;
+        // 设置图标 - 使用DOM API创建SVG，而不是innerHTML
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        svg.setAttribute('width', '24');
+        svg.setAttribute('height', '24');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.classList.add('svg-icon', 'right-triangle');
+        
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M3 8L12 17L21 8');
+        
+        svg.appendChild(path);
+        indicator.appendChild(svg);
         
         // 添加点击事件
         indicator.addEventListener('click', (evt) => {
@@ -652,13 +664,13 @@ export class FileExplorerEnhancer {
             
             // 设置展开状态
             const isExpanded = this.expansionState.get(docPath) || false;
-            container.style.display = isExpanded ? 'block' : 'none';
+            container.classList.remove(isExpanded ? 'hidden' : 'visible');
+            container.classList.add(isExpanded ? 'visible' : 'hidden');
             
             // 保存状态
             this.saveExpansionState();
         } catch (error) {
-            console.error(`[文件浏览器] 加载图片到容器时出错:`, error);
-            // 错误已被捕获
+            this.logger.error(`加载图片到容器时出错:`, error);
         }
     }
 
@@ -717,7 +729,8 @@ export class FileExplorerEnhancer {
             `.nav-folder-title[data-path$="${CONSTANTS.ASSETS_FOLDER_SUFFIX}"], 
              .tree-item-self[data-path$="${CONSTANTS.ASSETS_FOLDER_SUFFIX}"]`
         ).forEach(el => {
-            (el as HTMLElement).style.display = '';
+            (el as HTMLElement).classList.remove('hidden');
+            // 不需要设置display，因为我们完全依赖CSS
         });
         
         // 保存展开状态以备后用
@@ -786,6 +799,35 @@ export class FileExplorerEnhancer {
             this._mutationPaused = false;
         } else {
             this._mutationPaused = true;
+        }
+    }
+
+    /**
+     * 刷新文件浏览器视图
+     */
+    public async refreshView(): Promise<void> {
+        // 清理当前增强器
+        this.cleanup();
+        
+        // 重新初始化，传入新的设置
+        this.initialize(this.isHidden);
+        
+        // 触发刷新所有容器
+        window.dispatchEvent(new CustomEvent(CONSTANTS.EVENTS.REFRESH_CONTAINERS));
+        
+        // 如果开启了隐藏图片文件夹功能，只在布局就绪后执行增强
+        // 避免多次调用造成重复处理
+        if (this.isHidden) {
+            this.logger.debug('等待布局就绪后执行文件浏览器增强');
+            
+            // 触发布局变化
+            this.app.workspace.trigger('layout-change');
+            
+            // 使用布局就绪回调确保DOM已更新
+            this.app.workspace.onLayoutReady(() => {
+                this.logger.debug('布局就绪，执行文件浏览器增强');
+                this.enhanceFileExplorer();
+            });
         }
     }
 }

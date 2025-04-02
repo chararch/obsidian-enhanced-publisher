@@ -1,5 +1,6 @@
 import { Editor, MarkdownView, Notice, TFile } from 'obsidian';
 import { CONSTANTS } from './constants';
+import { Logger } from './utils/logger';
 
 // 导入主插件类型（仅用于TypeScript类型检查）
 type EnhancedPublisherPlugin = any;
@@ -23,6 +24,8 @@ export async function handlePasteEvent(
     editor: Editor, 
     view: MarkdownView
 ): Promise<void> {
+    const logger = Logger.getInstance(this.app);
+    
     // 检查是否有图片数据
     if (!evt.clipboardData?.files.length) {
         return; // 没有文件，跳过
@@ -34,6 +37,11 @@ export async function handlePasteEvent(
     // 检查是否是图片
     if (!file.type.startsWith('image/')) {
         return; // 不是图片，跳过
+    }
+    
+    // 检查是否启用了自动保存图片
+    if (!this.settings.autoSaveImages) {
+        return; // 未启用自动保存，跳过
     }
     
     // 阻止默认粘贴行为
@@ -107,9 +115,11 @@ function refreshAfterImageSave(
             if (plugin.viewManager) {
                 // 使用forceUpdate参数强制刷新
                 plugin.viewManager.refreshDocumentView(docPath, true);
-                console.log(`[图片处理] 强制刷新文档 ${docPath} 的图片视图`);
+                const logger = Logger.getInstance(this.app);
+                logger.debug(`强制刷新文档 ${docPath} 的图片视图`);
             } else {
-                console.log(`[图片处理] 没有找到viewManager，无法刷新文档视图`);
+                const logger = Logger.getInstance(this.app);
+                logger.error(`没有找到viewManager，无法刷新文档视图`);
             }
         } catch (error) {
             console.error('[图片处理] 刷新图片容器时出错:', error);

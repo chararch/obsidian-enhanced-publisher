@@ -1,6 +1,7 @@
 import { App, TFile, TFolder, prepareSimpleSearch } from 'obsidian';
 import { CONSTANTS } from '../constants';
 import { AssetManager } from './asset-manager';
+import { Logger } from '../utils/logger';
 
 /**
  * 文档管理器 - 负责处理文档相关操作
@@ -8,10 +9,12 @@ import { AssetManager } from './asset-manager';
 export class DocumentManager {
     private app: App;
     private assetManager: AssetManager;
+    private logger: Logger;
 
     constructor(app: App, assetManager: AssetManager) {
         this.app = app;
         this.assetManager = assetManager;
+        this.logger = Logger.getInstance(app);
     }
 
     /**
@@ -285,100 +288,36 @@ export class DocumentManager {
     }
 
     /**
-     * 查找引用了指定图片的所有文档
-     * 使用Obsidian的prepareSimpleSearch API高效搜索
-     * @param imagePath 图片路径
-     * @returns 包含引用的文档文件数组
+     * 查找引用指定图片的所有文档
      */
-    public async findDocumentsReferencingImage(imagePath: string): Promise<TFile[]> {
-        try {
-            // 准备搜索参数
-            const imageName = imagePath.split('/').pop() || '';
-            
-            // 存储所有匹配文档
-            const matchedDocs = new Set<TFile>();
-            
-            // 获取所有markdown文件
-            const mdFiles = this.app.vault.getMarkdownFiles();
-            
-            // 首先检查与图片关联的文档（基于文件夹结构）
-            const associatedDocPath = this.assetManager.getDocumentPathFromImagePath(imagePath);
-            if (associatedDocPath) {
-                const docFile = this.app.vault.getAbstractFileByPath(associatedDocPath);
-                if (docFile instanceof TFile) {
-                    // 高优先级：检查关联文档
-                    const hasReference = await this.documentContainsImageReference(docFile, imagePath);
-                    if (hasReference) {
-                        matchedDocs.add(docFile);
-                    }
+    public async findReferencingDocs(imageName: string): Promise<TFile[]> {
+        this.logger.debug(`开始搜索引用图片 ${imageName} 的文档...`);
+        
+        const referencingDocs: TFile[] = [];
+        const markdownFiles = this.app.vault.getMarkdownFiles();
+        let processed = 0;
+        let found = 0;
+        
+        for (const file of markdownFiles) {
+            try {
+                const content = await this.app.vault.read(file);
+                if (content.includes(imageName)) {
+                    referencingDocs.push(file);
+                    found++;
                 }
+            } catch (error) {
+                this.logger.error(`处理文件 ${file.path} 时出错: ${error}`);
             }
             
-            // 使用Obsidian的搜索API进行高效搜索
-            console.log(`[图片引用搜索] 开始搜索引用图片 ${imageName} 的文档...`);
+            processed++;
+            const progress = Math.round((processed / markdownFiles.length) * 100);
             
-            // 创建搜索函数 - 使用prepareSimpleSearch提高性能
-            const searchFunction = prepareSimpleSearch(imageName);
-            
-            // 分批处理所有文档
-            const batchSize = 30;
-            let processed = 0;
-            let found = 0;
-            
-            // 分批处理，避免阻塞UI
-            for (let i = 0; i < mdFiles.length; i += batchSize) {
-                const batch = mdFiles.slice(i, i + batchSize);
-                
-                // 使用setTimeout允许UI更新
-                await new Promise<void>(resolve => {
-                    setTimeout(async () => {
-                        for (const file of batch) {
-                            // 跳过已处理的文档
-                            if (matchedDocs.has(file)) {
-                                continue;
-                            }
-                            
-                            // 跳过大文件
-                            if (file.stat.size > 1024 * 1024) {
-                                continue;
-                            }
-                            
-                            processed++;
-                            
-                            try {
-                                // 使用缓存读取文件内容
-                                const content = await this.app.vault.cachedRead(file);
-                                
-                                // 使用prepareSimpleSearch进行初步检查
-                                if (searchFunction(content)) {
-                                    // 如果初步匹配，进行精确检查
-                                    const hasReference = await this.documentContainsImageReference(file, imagePath);
-                                    if (hasReference) {
-                                        matchedDocs.add(file);
-                                        found++;
-                                    }
-                                }
-                            } catch (error) {
-                                console.log(`[图片引用搜索] 处理文件 ${file.path} 时出错: ${error}`);
-                            }
-                        }
-                        
-                        // 记录进度
-                        if (processed % 100 === 0 || i + batchSize >= mdFiles.length) {
-                            const progress = Math.round((processed / mdFiles.length) * 100);
-                            console.log(`[图片引用搜索] 进度: ${progress}%, 已找到 ${found} 个引用`);
-                        }
-                        
-                        resolve();
-                    }, 0);
-                });
+            if (processed % 100 === 0) {
+                this.logger.debug(`进度: ${progress}%, 已找到 ${found} 个引用`);
             }
-            
-            console.log(`[图片引用搜索] 完成，共处理 ${processed} 个文档，找到 ${found} 个引用`);
-            return Array.from(matchedDocs);
-        } catch (error) {
-            console.error(`查找引用图片 ${imagePath} 的文档时出错:`, error);
-            return [];
         }
+        
+        this.logger.debug(`完成，共处理 ${processed} 个文档，找到 ${found} 个引用`);
+        return referencingDocs;
     }
 }

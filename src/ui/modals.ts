@@ -1,7 +1,7 @@
 import { App, MarkdownView, Modal, Notice, Setting, TFile } from 'obsidian';
 import EnhancedPublisherPlugin from '../main';
 import { markdownToHtml } from '../html-preview';
-import { getWechatMaterials, uploadImageToWechat } from '../publisher/wechat';
+import { WechatPublisher } from '../publisher/wechat';
 
 // 封面图选择模态框
 export class CoverImageModal extends Modal {
@@ -87,16 +87,32 @@ export class CoverImageModal extends Modal {
 		buttonContainer.style.gap = '10px';
 		buttonContainer.style.marginTop = '20px';
 		
+		// 取消按钮
 		const cancelButton = buttonContainer.createEl('button', {text: '取消'});
-		const confirmButton = buttonContainer.createEl('button', {
+		
+		// 素材库确认按钮
+		const materialConfirmButton = buttonContainer.createEl('button', {
 			text: '确认',
 			cls: 'wechat-confirm-button'
 		});
-		confirmButton.disabled = true;
+		materialConfirmButton.disabled = true;
+		
+		// 本地图片确认按钮
+		const localConfirmButton = buttonContainer.createEl('button', {
+			text: '确认',
+			cls: 'wechat-confirm-button'
+		});
+		localConfirmButton.disabled = true;
+		localConfirmButton.style.display = 'none';  // 初始隐藏
 		
 		// 设置确认按钮样式
-		confirmButton.style.backgroundColor = 'var(--interactive-accent)';
-		confirmButton.style.color = 'var(--text-on-accent)';
+		const setConfirmButtonStyle = (button: HTMLElement) => {
+			button.style.backgroundColor = 'var(--interactive-accent)';
+			button.style.color = 'var(--text-on-accent)';
+		};
+		
+		setConfirmButtonStyle(materialConfirmButton);
+		setConfirmButtonStyle(localConfirmButton);
 		
 		cancelButton.addEventListener('click', () => this.close());
 		
@@ -111,7 +127,7 @@ export class CoverImageModal extends Modal {
 				materialGrid.empty();
 				loadingEl.style.display = 'block';
 				
-				const materials = await getWechatMaterials.call(this.plugin, page, pageSize);
+				const materials = await this.plugin.wechatPublisher.getWechatMaterials(page, pageSize);
 				
 				if (materials.items.length === 0 && page === 0) {
 					materialGrid.createEl('div', {text: '没有找到素材，请上传新图片'});
@@ -162,18 +178,8 @@ export class CoverImageModal extends Modal {
 							name: material.name
 						}));
 						
-						// 添加确认按钮
-						if (!buttonContainer.querySelector('.confirm-button')) {
-							const confirmButton = buttonContainer.createEl('button', {
-								text: '确认选择',
-								cls: 'confirm-button'
-							});
-							
-							confirmButton.addEventListener('click', () => {
-								this.onImageSelected(this.selectedMediaId);
-								this.close();
-							});
-						}
+						// 启用素材库确认按钮
+						materialConfirmButton.disabled = false;
 					});
 				}
 			} catch (error) {
@@ -188,6 +194,11 @@ export class CoverImageModal extends Modal {
 			localTab.style.borderBottom = 'none';
 			materialContent.style.display = 'flex';
 			localContent.style.display = 'none';
+			// 切换确认按钮
+			materialConfirmButton.style.display = '';
+			localConfirmButton.style.display = 'none';
+			// 重置确认按钮状态
+			materialConfirmButton.disabled = true;
 		});
 		
 		localTab.addEventListener('click', () => {
@@ -195,6 +206,11 @@ export class CoverImageModal extends Modal {
 			materialTab.style.borderBottom = 'none';
 			materialContent.style.display = 'none';
 			localContent.style.display = 'flex';
+			// 切换确认按钮
+			materialConfirmButton.style.display = 'none';
+			localConfirmButton.style.display = '';
+			// 重置确认按钮状态
+			localConfirmButton.disabled = true;
 		});
 		
 		// 文件选择事件
@@ -219,7 +235,8 @@ export class CoverImageModal extends Modal {
 				};
 				reader.readAsDataURL(selectedFile);
 				
-				confirmButton.disabled = false;
+				// 启用本地图片确认按钮
+				localConfirmButton.disabled = false;
 				
 				// 保存选中的文件
 				sessionStorage.setItem('selected_file', JSON.stringify({
@@ -229,14 +246,26 @@ export class CoverImageModal extends Modal {
 				}));
 			} else {
 				imagePreview.textContent = '预览区域';
-				confirmButton.disabled = true;
+				localConfirmButton.disabled = true;
 				sessionStorage.removeItem('preview_image_url');
 				sessionStorage.removeItem('selected_file');
 			}
 		});
 		
-		// 确认按钮事件
-		confirmButton.addEventListener('click', () => {
+		// 素材库确认按钮事件
+		materialConfirmButton.addEventListener('click', () => {
+			const selectedMaterial = sessionStorage.getItem('selected_material');
+			if (!selectedMaterial) {
+				new Notice('请先选择图片');
+				return;
+			}
+			const material = JSON.parse(selectedMaterial);
+			this.onImageSelected(material.media_id);
+			this.close();
+		});
+		
+		// 本地图片确认按钮事件
+		localConfirmButton.addEventListener('click', async () => {
 			const selectedFileInfo = sessionStorage.getItem('selected_file');
 			const previewImageUrl = sessionStorage.getItem('preview_image_url');
 			
@@ -464,7 +493,7 @@ export class PublishModal extends Modal {
 								const buffer = await blob.arrayBuffer();
 								
 								// 上传到微信
-								const mediaId = await uploadImageToWechat.call(this.plugin, buffer, material.fileInfo.name);
+								const mediaId = await this.plugin.wechatPublisher.uploadImageToWechat(buffer, material.fileInfo.name);
 								
 								if (mediaId) {
 									this.selectedCoverMediaId = mediaId;

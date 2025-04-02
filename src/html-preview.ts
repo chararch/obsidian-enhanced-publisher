@@ -1,6 +1,7 @@
 import { App, MarkdownRenderer, MarkdownView, Notice, Modal, Plugin, ItemView, WorkspaceLeaf, ViewStateResult, TFile, TAbstractFile } from 'obsidian';
 import EnhancedPublisherPlugin from './main';
 import { CONSTANTS } from './constants';
+import { log } from 'console';
 
 // HTML预览视图的类型标识符
 export const HTML_PREVIEW_VIEW_TYPE = 'enhanced-publisher-html-preview';
@@ -88,19 +89,8 @@ export class HtmlPreviewView extends ItemView {
         const existingWarnings = this.contentEl.querySelectorAll('.html-preview-warning');
         existingWarnings.forEach(el => el.remove());
         
-        // 添加警告 - 直接添加到顶层内容元素
+        // 添加警告 - 创建带有样式类的警告元素
         const warning = this.contentEl.createEl('div', {cls: 'html-preview-warning'});
-        warning.style.padding = '15px';
-        warning.style.backgroundColor = '#ff5555';
-        warning.style.color = 'white';
-        warning.style.textAlign = 'center';
-        warning.style.position = 'sticky';
-        warning.style.top = '0';
-        warning.style.zIndex = '1000';
-        warning.style.fontWeight = 'bold';
-        warning.style.borderBottom = '3px solid black';
-        warning.style.fontSize = '16px';
-        warning.style.boxShadow = '0 2px 5px rgba(0,0,0,0.3)';
         warning.textContent = '⚠️ 警告：原始文档已被删除或重命名，该预览内容将不会再更新';
         
         // 确保警告插入到DOM的最前面
@@ -164,11 +154,6 @@ export class HtmlPreviewView extends ItemView {
         
         // 创建顶部工具栏
         const toolbar = this.contentEl.createDiv({cls: 'html-preview-toolbar'});
-        toolbar.style.display = 'flex';
-        toolbar.style.justifyContent = 'space-between';
-        toolbar.style.alignItems = 'center';
-        toolbar.style.padding = '10px';
-        toolbar.style.borderBottom = '1px solid var(--background-modifier-border)';
         
         // 左侧区域：标题
         const titleArea = toolbar.createDiv({cls: 'html-preview-title-area'});
@@ -176,32 +161,21 @@ export class HtmlPreviewView extends ItemView {
         // 添加标题
         const title = titleArea.createEl('span', {cls: 'html-preview-title'});
         title.textContent = this.documentTitle;
-        title.style.fontWeight = 'bold';
-        title.style.cursor = 'text';
-        title.style.userSelect = 'text';
         
         // 右侧区域：按钮
         const buttonArea = toolbar.createDiv({cls: 'html-preview-button-area'});
-        buttonArea.style.display = 'flex';
-        buttonArea.style.gap = '10px';
         
         // 添加复制按钮
         const copyButton = buttonArea.createEl('button', {cls: 'html-preview-copy-button'});
         copyButton.textContent = '复制到内容平台';
-        copyButton.style.backgroundColor = 'var(--interactive-accent)';
-        copyButton.style.color = 'var(--text-on-accent)';
-        copyButton.style.border = 'none';
-        copyButton.style.borderRadius = '4px';
-        copyButton.style.padding = '5px 10px';
-        copyButton.style.cursor = 'pointer';
         
         copyButton.addEventListener('click', async () => {
             try {
                 // 创建一个临时容器来存放HTML内容
                 const container = document.createElement('div');
-                container.style.position = 'absolute';
-                container.style.left = '-9999px';
+                container.className = 'offscreen-container';
                 container.innerHTML = this.htmlContent;
+                
                 document.body.appendChild(container);
 
                 // 处理所有图片
@@ -285,20 +259,16 @@ export class HtmlPreviewView extends ItemView {
         
         // 添加发布按钮
         const publishButton = buttonArea.createEl('button', {cls: 'html-preview-publish-button'});
-        publishButton.textContent = '发布到内容平台';
-        publishButton.style.backgroundColor = 'var(--interactive-accent)'; // 绿色
-        publishButton.style.color = 'var(--text-on-accent)';
-        publishButton.style.border = 'none';
-        publishButton.style.borderRadius = '4px';
-        publishButton.style.padding = '5px 10px';
-        publishButton.style.cursor = 'pointer';
+        publishButton.textContent = '发布';
         
-        publishButton.addEventListener('click', () => {
+        publishButton.addEventListener('click', async () => {
             // 使用存储的原始文档路径，而不是当前活跃视图
             if (this.originalMarkdownPath) {
-                // 尝试打开原始文档
-                this.plugin.app.workspace.openLinkText(this.originalMarkdownPath, '', false).then(async () => {
+                try {
+                    // 尝试打开原始文档
+                    await this.plugin.app.workspace.openLinkText(this.originalMarkdownPath, '', false);
                     const markdownView = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+                    
                     if (markdownView) {
                         // 确认找到的确实是我们要的文档
                         if (markdownView.file?.path === this.originalMarkdownPath) {
@@ -317,64 +287,59 @@ export class HtmlPreviewView extends ItemView {
                     } else {
                         new Notice(`无法找到原始文档: ${this.documentTitle}`);
                     }
-                }).catch(error => {
+                } catch (error) {
                     console.error('打开原始文档失败:', error);
-                    new Notice(`打开原始文档失败: ${error.message || '未知错误'}`);
-                });
+                    new Notice(`打开原始文档失败: ${error instanceof Error ? error.message : '未知错误'}`);
+                }
             } else {
                 new Notice('无法确定要发布的原始文档');
             }
         });
         
-        // 创建内容容器（需设置正确的高度以避免双滚动条）
+        // 创建内容容器
         const contentContainer = this.contentEl.createDiv({cls: 'html-preview-content'});
-        contentContainer.style.height = 'calc(100% - 50px)'; // 减去工具栏高度
-        contentContainer.style.overflow = 'hidden'; // 防止出现双滚动条
         
-        // 使用iframe渲染HTML内容
+        // 创建iframe
         const iframe = contentContainer.createEl('iframe', {cls: 'html-preview-iframe'});
-        iframe.style.width = '100%';
-        iframe.style.height = '100%';
-        iframe.style.border = 'none';
-        iframe.style.display = 'block';
-        
-        // 加载HTML内容到iframe
-        iframe.onload = () => {
-            if (iframe.contentDocument) {
-                const doc = iframe.contentDocument;
-                
-                // 添加样式
-                const style = doc.createElement('style');
-                style.textContent = `
-                    body {
-                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-                        padding: 20px;
-                        margin: 0;
-                        line-height: 1.6;
-                    }
-                    img {
-                        max-width: 100%;
-                    }
-                    pre {
-                        background-color: #f5f5f5;
-                        padding: 10px;
-                        overflow: auto;
-                        border-radius: 3px;
-                    }
-                    code {
-                        font-family: Consolas, Monaco, 'Andale Mono', monospace;
-                    }
-                `;
-                doc.head.appendChild(style);
-                
-                // 设置HTML内容
-                doc.body.innerHTML = this.htmlContent;
-            }
-        };
         
         // 设置iframe内容
         const frameDoc = iframe.contentDocument || iframe.contentWindow?.document;
         if (frameDoc) {
+            // 先设置 onload 事件
+            iframe.onload = async () => {
+                if (iframe.contentDocument) {
+                    const doc = iframe.contentDocument;
+                    
+                    // 添加样式
+                    const style = doc.createElement('style');
+                    style.textContent = `
+                        body {
+                            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                            padding: 20px;
+                            margin: 0;
+                            line-height: 1.6;
+                        }
+                        img {
+                            max-width: 100%;
+                        }
+                        pre {
+                            background-color: #f5f5f5;
+                            padding: 10px;
+                            overflow: auto;
+                            border-radius: 3px;
+                        }
+                        code {
+                            font-family: Consolas, Monaco, 'Andale Mono', monospace;
+                        }
+                    `;
+                    doc.head.appendChild(style);
+                    
+                    // 设置HTML内容
+                    doc.body.innerHTML = this.htmlContent;
+                }
+            };
+
+            // 然后设置初始内容
             frameDoc.open();
             frameDoc.write('<!DOCTYPE html><html><head></head><body></body></html>');
             frameDoc.close();
@@ -557,8 +522,6 @@ export async function showHtmlPreview(this: EnhancedPublisherPlugin, markdownVie
 
 // 将Markdown转换为HTML
 export async function markdownToHtml(this: EnhancedPublisherPlugin, markdown: string): Promise<string> {
-    // 预处理Markdown，替换Obsidian的内部链接格式为标准Markdown图片格式
-    // 匹配 ![[图片名.扩展名]] 格式
     const processedMarkdown = markdown
     
     // 使用Obsidian内部的Markdown渲染器
@@ -570,7 +533,7 @@ export async function markdownToHtml(this: EnhancedPublisherPlugin, markdown: st
         this
     );
     
-    // 处理图片路径，同时处理普通img标签和span.internal-embed标签
+    // 处理图片路径
     const processImages = async () => {
         // 处理标准img标签
         const images = tempDiv.querySelectorAll('img');
@@ -587,7 +550,6 @@ export async function markdownToHtml(this: EnhancedPublisherPlugin, markdown: st
             if (src && isImageFile(src)) {
                 // 创建img元素替换span
                 const img = document.createElement('img');
-                // img.setAttribute('src', src);
                 if (alt) img.setAttribute('alt', alt);
                 img.style.maxWidth = '100%';
                 

@@ -119,13 +119,11 @@ export class ViewManager {
         
         container.setAttribute('data-doc-path', docPath);
         container.setAttribute('data-folder-path', folderPath);
-        container.style.display = isExpanded ? 'block' : 'none';
+        container.classList.add(isExpanded ? 'visible' : 'hidden');
         
         // 创建占位元素，提供垂直空间
         const spacer = document.createElement('div');
-        spacer.style.width = '100%';
-        spacer.style.height = '0.1px';
-        spacer.style.marginBottom = '0px';
+        spacer.classList.add('document-spacer');
         container.appendChild(spacer);
         
         return container;
@@ -151,9 +149,7 @@ export class ViewManager {
             
             // 保留占位元素
             const spacer = document.createElement('div');
-            spacer.style.width = '100%';
-            spacer.style.height = '0.1px';
-            spacer.style.marginBottom = '0px';
+            spacer.classList.add('document-spacer');
             container.appendChild(spacer);
             
             // 检查资源文件夹是否存在
@@ -217,7 +213,9 @@ export class ViewManager {
         });
         
         // 清空容器内容
-        container.innerHTML = '';
+        while (container.firstChild) {
+            container.removeChild(container.firstChild);
+        }
     }
 
     /**
@@ -227,11 +225,9 @@ export class ViewManager {
     public createImageItem(image: TFile): HTMLElement {
         // 创建图片标题元素
         const imageTitle = document.createElement('div');
-        imageTitle.classList.add('tree-item-self', 'nav-file-title', 'tappable', 'is-clickable');
+        imageTitle.classList.add('tree-item-self', 'nav-file-title', 'tappable', 'is-clickable', 'image-title');
         imageTitle.setAttribute('data-path', image.path);
         imageTitle.setAttribute('draggable', 'true');
-        imageTitle.style.marginInlineStart = '-34px';
-        imageTitle.style.paddingInlineStart = '58px';
         
         // 创建内容容器
         const innerContent = document.createElement('div');
@@ -300,21 +296,12 @@ export class ViewManager {
                         inputEl.type = 'text';
                         inputEl.value = fileName;
                         inputEl.className = 'enhanced-publisher-rename-input';
-                        inputEl.style.position = 'absolute';
+                        
+                        // 设置位置和尺寸（这些是动态计算的值，必须在JS中设置）
                         inputEl.style.left = rect.left + 'px';
                         inputEl.style.top = rect.top + 'px';
                         inputEl.style.width = rect.width + 'px';
                         inputEl.style.height = rect.height + 'px';
-                        inputEl.style.zIndex = '1000';
-                        inputEl.style.fontFamily = 'inherit';
-                        inputEl.style.fontSize = 'inherit';
-                        inputEl.style.border = 'none';
-                        inputEl.style.outline = 'none';
-                        inputEl.style.boxShadow = 'none';
-                        inputEl.style.borderRadius = '0';
-                        inputEl.style.padding = '0 4px';
-                        inputEl.style.margin = '0';
-                        inputEl.style.backgroundColor = 'var(--background-modifier-form-field)';
                         
                         // 添加到文档
                         document.body.appendChild(inputEl);
@@ -492,7 +479,8 @@ export class ViewManager {
         
         // 设置显示状态
         containers.forEach(container => {
-            (container as HTMLElement).style.display = isVisible ? 'block' : 'none';
+            container.classList.remove(isVisible ? 'hidden' : 'visible');
+            container.classList.add(isVisible ? 'visible' : 'hidden');
             
             // 如果要显示且容器为空，则尝试加载内容
             if (isVisible && container.children.length <= 1) { // 只有占位符时视为空
