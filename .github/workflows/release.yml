@@ -2,7 +2,11 @@ name: Release Obsidian Plugin
 
 on:
   release:
-    types: [published] # 修改触发器：在Release被发布时触发
+    types: [published] # 在Release被发布时触发
+
+# 显式声明工作流需要的权限
+permissions:
+  contents: write # 允许写入仓库内容（包括上传Release附件）
 
 jobs:
   build:
@@ -10,7 +14,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3 # 获取你的代码
+        uses: actions/checkout@v3
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
@@ -23,29 +27,61 @@ jobs:
       - name: Build plugin
         run: npm run build # 运行构建命令，生成 main.js
 
-      - name: Prepare Release Files
+      # --- 打包并上传 ZIP 文件 (保持不变) ---
+      - name: Prepare Release Files for ZIP
         run: |
-          mkdir plugin-release # 创建临时目录
-          cp main.js manifest.json plugin-release/ # 复制必要文件
-          # 如果 styles.css 存在，也复制它。如果不存在，忽略错误。
-          cp styles.css plugin-release/ || true
+          mkdir plugin-release
+          cp main.js manifest.json plugin-release/
+          cp styles.css plugin-release/ || true # 复制 styles.css (如果存在)
 
       - name: Create ZIP archive
         run: |
-          cd plugin-release # 进入临时目录
-          # 将目录内容打包成zip，文件名包含版本号（即tag名）
+          cd plugin-release
           zip ../obsidian-enhanced-publisher-${{ github.ref_name }}.zip ./*
 
-      - name: Upload Release Asset
+      - name: Upload Release ZIP Asset
+        id: upload-zip-asset # 给这个步骤一个ID，方便调试
         uses: actions/upload-release-asset@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 使用GitHub提供的token进行认证
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # upload_url 是 GitHub 在触发 release 事件时提供的，用于上传附件
           upload_url: ${{ github.event.release.upload_url }}
-          # 指定要上传的zip文件的路径
           asset_path: ./obsidian-enhanced-publisher-${{ github.ref_name }}.zip
-          # 指定上传后在Release页面显示的文件名
           asset_name: obsidian-enhanced-publisher-${{ github.ref_name }}.zip
-          # 指定文件类型
           asset_content_type: application/zip
+
+      # --- 上传独立文件 ---
+      - name: Upload main.js Asset
+        id: upload-mainjs-asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./main.js       # 指定 main.js 的路径
+          asset_name: main.js         # 指定上传后的文件名
+          asset_content_type: application/javascript
+
+      - name: Upload manifest.json Asset
+        id: upload-manifest-asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./manifest.json # 指定 manifest.json 的路径
+          asset_name: manifest.json   # 指定上传后的文件名
+          asset_content_type: application/json
+
+      - name: Upload styles.css Asset (if exists)
+        id: upload-styles-asset
+        # 只有当 styles.css 文件存在时才运行此步骤
+        if: ${{ hashFiles('styles.css') != '' }}
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./styles.css    # 指定 styles.css 的路径
+          asset_name: styles.css      # 指定上传后的文件名
+          asset_content_type: text/css
