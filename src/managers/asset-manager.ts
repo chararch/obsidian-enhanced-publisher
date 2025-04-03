@@ -27,7 +27,7 @@ export class AssetManager {
         
         // 获取所有文件夹
         const folders = this.app.vault.getAllLoadedFiles()
-            .filter(file => file instanceof TFolder) as TFolder[];
+            .filter((file): file is TFolder => file instanceof TFolder);
         
         // 筛选出资源文件夹（以__assets结尾）
         for (const folder of folders) {
@@ -170,7 +170,7 @@ export class AssetManager {
         
         // 获取文件夹中的所有文件
         const files = folder.children
-            .filter(file => file instanceof TFile && CONSTANTS.IMAGE_EXTENSIONS.includes(`.${(file as TFile).extension}`)) as TFile[];
+            .filter((file): file is TFile => file instanceof TFile && CONSTANTS.IMAGE_EXTENSIONS.includes(`.${file.extension}`));
             
         return files;
     }

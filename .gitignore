@@ -9,6 +9,7 @@ node_modules/
 dist/
 build/
 *.js.map
+main.js
 
 # 配置文件
 data.json

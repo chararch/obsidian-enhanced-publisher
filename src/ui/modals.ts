@@ -31,9 +31,8 @@ export class CoverImageModal extends Modal {
 		const tabsContainer = contentEl.createDiv({cls: 'wechat-cover-tabs'});
 		
 		// 素材库标签
-		const materialTab = tabsContainer.createDiv({cls: 'wechat-cover-tab'});
+		const materialTab = tabsContainer.createDiv({cls: 'wechat-cover-tab active'});
 		materialTab.textContent = '素材库';
-		materialTab.style.borderBottom = '2px solid var(--interactive-accent)';
 		
 		// 本地图片标签
 		const localTab = tabsContainer.createDiv({cls: 'wechat-cover-tab'});
@@ -46,9 +45,10 @@ export class CoverImageModal extends Modal {
 		const materialContent = contentContainer.createDiv({cls: 'wechat-material-content'});
 		
 		// 加载中提示
-		const loadingEl = materialContent.createEl('div', {text: '正在加载素材...'});
-		loadingEl.style.textAlign = 'center';
-		loadingEl.style.padding = '20px';
+		const loadingEl = materialContent.createEl('div', {
+			text: '正在加载素材...',
+			cls: 'wechat-material-loading'
+		});
 		
 		// 创建素材网格容器
 		const materialGrid = materialContent.createDiv({cls: 'material-grid'});
@@ -66,8 +66,7 @@ export class CoverImageModal extends Modal {
 		nextButton.disabled = true;
 		
 		// 本地上传内容
-		const localContent = contentContainer.createDiv({cls: 'wechat-local-content'});
-		localContent.style.display = 'none';
+		const localContent = contentContainer.createDiv({cls: 'wechat-local-content content-hidden'});
 		
 		// 创建文件选择按钮容器
 		const fileInputContainer = localContent.createDiv({cls: 'file-input-container'});
@@ -82,10 +81,6 @@ export class CoverImageModal extends Modal {
 		
 		// 底部按钮
 		const buttonContainer = contentEl.createDiv({cls: 'wechat-cover-buttons'});
-		buttonContainer.style.display = 'flex';
-		buttonContainer.style.justifyContent = 'flex-end';
-		buttonContainer.style.gap = '10px';
-		buttonContainer.style.marginTop = '20px';
 		
 		// 取消按钮
 		const cancelButton = buttonContainer.createEl('button', {text: '取消'});
@@ -100,19 +95,9 @@ export class CoverImageModal extends Modal {
 		// 本地图片确认按钮
 		const localConfirmButton = buttonContainer.createEl('button', {
 			text: '确认',
-			cls: 'wechat-confirm-button'
+			cls: 'wechat-confirm-button content-hidden'
 		});
 		localConfirmButton.disabled = true;
-		localConfirmButton.style.display = 'none';  // 初始隐藏
-		
-		// 设置确认按钮样式
-		const setConfirmButtonStyle = (button: HTMLElement) => {
-			button.style.backgroundColor = 'var(--interactive-accent)';
-			button.style.color = 'var(--text-on-accent)';
-		};
-		
-		setConfirmButtonStyle(materialConfirmButton);
-		setConfirmButtonStyle(localConfirmButton);
 		
 		cancelButton.addEventListener('click', () => this.close());
 		
@@ -125,7 +110,8 @@ export class CoverImageModal extends Modal {
 		const loadMaterialsPage = async (page: number) => {
 			try {
 				materialGrid.empty();
-				loadingEl.style.display = 'block';
+				loadingEl.classList.add('content-visible');
+				loadingEl.classList.remove('content-hidden');
 				
 				const materials = await this.plugin.wechatPublisher.getWechatMaterials(page, pageSize);
 				
@@ -144,29 +130,36 @@ export class CoverImageModal extends Modal {
 				nextButton.disabled = (page + 1) * pageSize >= totalCount;
 				
 				// 加载素材项
-				loadingEl.style.display = 'none';
+				loadingEl.classList.add('content-hidden');
+				loadingEl.classList.remove('content-visible');
 				
 				for (const material of materials.items) {
-					const materialItem = materialGrid.createDiv({cls: 'material-item'});
+					const materialItem = materialGrid.createDiv({
+						cls: 'material-item material-item-unselected'
+					});
 					
 					// 添加图片
 					const img = materialItem.createEl('img');
 					img.src = material.url;
 					
 					// 添加素材名称
-					const nameEl = materialItem.createEl('div', {text: material.name || '未命名素材'});
-					nameEl.style.fontSize = '12px';
+					const nameEl = materialItem.createEl('div', {
+						text: material.name || '未命名素材',
+						cls: 'material-item-name'
+					});
 					
 					// 点击选择素材
 					materialItem.addEventListener('click', () => {
 						// 移除其他选中项的样式
 						const items = materialGrid.querySelectorAll('.material-item');
 						items.forEach((item: HTMLElement) => {
-							item.style.border = '1px solid var(--background-modifier-border)';
+							item.classList.remove('material-item-selected');
+							item.classList.add('material-item-unselected');
 						});
 						
 						// 设置当前选中项的样式
-						materialItem.style.border = '2px solid var(--interactive-accent)';
+						materialItem.classList.remove('material-item-unselected');
+						materialItem.classList.add('material-item-selected');
 						
 						// 设置选中的media_id
 						this.selectedMediaId = material.media_id;
@@ -190,25 +183,35 @@ export class CoverImageModal extends Modal {
 		
 		// 标签切换事件
 		materialTab.addEventListener('click', () => {
-			materialTab.style.borderBottom = '2px solid var(--interactive-accent)';
-			localTab.style.borderBottom = 'none';
-			materialContent.style.display = 'flex';
-			localContent.style.display = 'none';
+			materialTab.classList.add('active');
+			localTab.classList.remove('active');
+			
+			materialContent.classList.add('content-visible');
+			materialContent.classList.remove('content-hidden');
+			localContent.classList.add('content-hidden');
+			localContent.classList.remove('content-visible');
+			
 			// 切换确认按钮
-			materialConfirmButton.style.display = '';
-			localConfirmButton.style.display = 'none';
+			materialConfirmButton.classList.remove('content-hidden');
+			localConfirmButton.classList.add('content-hidden');
+			
 			// 重置确认按钮状态
 			materialConfirmButton.disabled = true;
 		});
 		
 		localTab.addEventListener('click', () => {
-			localTab.style.borderBottom = '2px solid var(--interactive-accent)';
-			materialTab.style.borderBottom = 'none';
-			materialContent.style.display = 'none';
-			localContent.style.display = 'flex';
+			localTab.classList.add('active');
+			materialTab.classList.remove('active');
+			
+			materialContent.classList.add('content-hidden');
+			materialContent.classList.remove('content-visible');
+			localContent.classList.add('content-visible');
+			localContent.classList.remove('content-hidden');
+			
 			// 切换确认按钮
-			materialConfirmButton.style.display = 'none';
-			localConfirmButton.style.display = '';
+			materialConfirmButton.classList.add('content-hidden');
+			localConfirmButton.classList.remove('content-hidden');
+			
 			// 重置确认按钮状态
 			localConfirmButton.disabled = true;
 		});
@@ -224,10 +227,10 @@ export class CoverImageModal extends Modal {
 				reader.onload = (e) => {
 					if (e.target && e.target.result) {
 						imagePreview.empty();
-						const img = imagePreview.createEl('img');
+						const img = imagePreview.createEl('img', {
+							cls: 'preview-image'
+						});
 						img.src = e.target.result as string;
-						img.style.maxWidth = '100%';
-						img.style.maxHeight = '100%';
 						
 						// 保存预览图URL
 						sessionStorage.setItem('preview_image_url', e.target.result as string);
@@ -347,7 +350,7 @@ export class PublishModal extends Modal {
 		this.titleInput = document.createElement('input');
 		this.titleInput.type = 'text';
 		this.titleInput.value = this.markdownView.file?.basename || '';
-		this.titleInput.style.width = '100%';
+		this.titleInput.className = 'full-width-input';
 		
 		titleSetting.controlEl.appendChild(this.titleInput);
 		
@@ -386,14 +389,7 @@ export class PublishModal extends Modal {
 			
 		// 封面图预览区域
 		this.coverImagePreview = document.createElement('div');
-		this.coverImagePreview.className = 'enhanced-publisher-cover-preview';
-		this.coverImagePreview.style.width = '120px';
-		this.coverImagePreview.style.height = '80px';
-		this.coverImagePreview.style.border = '1px dashed var(--background-modifier-border)';
-		this.coverImagePreview.style.display = 'flex';
-		this.coverImagePreview.style.alignItems = 'center';
-		this.coverImagePreview.style.justifyContent = 'center';
-		this.coverImagePreview.style.marginRight = '10px';
+		this.coverImagePreview.className = 'enhanced-publisher-cover-preview cover-preview';
 		this.coverImagePreview.textContent = '无封面图';
 		
 		// 选择按钮
@@ -407,8 +403,7 @@ export class PublishModal extends Modal {
 				// 更新预览区域
 				this.coverImagePreview.empty();
 				const img = document.createElement('img') as HTMLImageElement;
-				img.style.maxWidth = '100%';
-				img.style.maxHeight = '100%';
+				img.className = 'preview-image';
 				
 				// 从sessionStorage获取选中的素材信息
 				const selectedMaterial = sessionStorage.getItem('selected_material');
@@ -429,8 +424,7 @@ export class PublishModal extends Modal {
 		
 		// 创建封面图选择区域的容器
 		const coverImageContainer = document.createElement('div');
-		coverImageContainer.style.display = 'flex';
-		coverImageContainer.style.alignItems = 'center';
+		coverImageContainer.className = 'cover-container';
 		
 		coverImageContainer.appendChild(this.coverImagePreview);
 		coverImageContainer.appendChild(selectCoverButton);
@@ -438,9 +432,9 @@ export class PublishModal extends Modal {
 		coverImageSetting.controlEl.appendChild(coverImageContainer);
 		
 		// 创建发布按钮容器并居中
-		const publishButtonContainer = contentEl.createDiv();
-		publishButtonContainer.style.textAlign = 'center';
-		publishButtonContainer.style.marginTop = '30px'; // 增加上边距
+		const publishButtonContainer = contentEl.createDiv({
+			cls: 'publish-button-container'
+		});
 		
 		// 发布按钮
 		const publishButton = publishButtonContainer.createEl('button', {

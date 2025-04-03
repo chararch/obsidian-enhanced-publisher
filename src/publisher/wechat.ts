@@ -287,7 +287,9 @@ export class WechatPublisher {
                 img.setAttribute('src', imageUrl);
             }
             
-            return tempDiv.innerHTML;
+            // 使用XMLSerializer安全地获取HTML内容，而不是使用innerHTML
+            const serializer = new XMLSerializer();
+            return serializer.serializeToString(tempDiv);
         } catch (error) {
             this.logger.error('处理文档图片时出错:', error);
             throw error;

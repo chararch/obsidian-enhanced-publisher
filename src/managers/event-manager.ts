@@ -141,7 +141,9 @@ export class EventManager {
                     // 如果图片在资源文件夹中，处理图片重命名
                     if (this.isInAssetFolder(file.path)) {
                         try {
-                            this.handleImageRename(oldPath, file as TFile);
+                            if (file instanceof TFile) {
+                                this.handleImageRename(oldPath, file);
+                            }
                         } catch (e) {
                             console.error("处理图片重命名时出错:", e);
                         }

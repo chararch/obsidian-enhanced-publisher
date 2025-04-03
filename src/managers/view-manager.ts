@@ -407,8 +407,8 @@ export class ViewManager {
                             modal.close();
                             
                             try {
-                                // 执行删除操作
-                                await this.app.vault.delete(image);
+                                // 执行删除操作，使用trashFile遵循用户偏好
+                                await this.app.fileManager.trashFile(image);
                                 
                                 // 获取相关文档路径并刷新视图
                                 const folderPath = image.path.substring(0, image.path.lastIndexOf('/'));

@@ -6,13 +6,23 @@ import { log } from 'console';
 // HTML预览视图的类型标识符
 export const HTML_PREVIEW_VIEW_TYPE = 'enhanced-publisher-html-preview';
 
+// 在文件顶部添加接口定义
+interface HtmlPreviewCustomProperties {
+    documentTitle: string;
+    originalMarkdownPath: string | null;
+    hasShownDeletionNotice?: boolean;
+    registerActiveDocumentListener: (path: string) => void;
+    registerFileChangeListener: () => void;
+}
+
 // HTML预览视图类
-export class HtmlPreviewView extends ItemView {
+export class HtmlPreviewView extends ItemView implements HtmlPreviewCustomProperties {
     public htmlContent: string;
     private plugin: EnhancedPublisherPlugin;
-    private documentTitle: string;
-    private originalMarkdownPath: string | null = null; // 存储原始Markdown文件路径
+    public documentTitle: string;
+    public originalMarkdownPath: string | null = null; // 存储原始Markdown文件路径
     private documentListener: { event: string; eventRef: any } | null = null;
+    public hasShownDeletionNotice: boolean = false;
     
     constructor(leaf: WorkspaceLeaf, plugin: EnhancedPublisherPlugin, htmlContent: string, documentTitle: string = 'HTML预览', originalMarkdownPath: string | null = null) {
         super(leaf);
@@ -123,13 +133,13 @@ export class HtmlPreviewView extends ItemView {
             // 提供轻微的视觉反馈
             const statusBarItem = this.leaf.view.containerEl.querySelector('.html-preview-title') as HTMLElement;
             if (statusBarItem) {
-                const originalBackground = statusBarItem.style.backgroundColor;
-                statusBarItem.style.backgroundColor = 'var(--interactive-success)';
+                const originalBackground = statusBarItem.className;
+                statusBarItem.classList.add('visual-feedback-success');
                 
                 // 500毫秒后恢复原样
                 setTimeout(() => {
                     if (statusBarItem) {
-                        statusBarItem.style.backgroundColor = originalBackground;
+                        statusBarItem.classList.remove('visual-feedback-success');
                     }
                 }, 500);
             }
@@ -174,7 +184,17 @@ export class HtmlPreviewView extends ItemView {
                 // 创建一个临时容器来存放HTML内容
                 const container = document.createElement('div');
                 container.className = 'offscreen-container';
-                container.innerHTML = this.htmlContent;
+                
+                // 使用DOMParser安全地解析HTML
+                const parser = new DOMParser();
+                const parsedDoc = parser.parseFromString(this.htmlContent, 'text/html');
+                
+                // 使用安全的DOM API复制内容
+                const fragment = document.createDocumentFragment();
+                Array.from(parsedDoc.body.childNodes).forEach(node => {
+                    fragment.appendChild(document.importNode(node, true));
+                });
+                container.appendChild(fragment);
                 
                 document.body.appendChild(container);
 
@@ -228,7 +248,9 @@ export class HtmlPreviewView extends ItemView {
                 }
 
                 // 创建富文本和HTML格式的数据
-                const richTextBlob = new Blob([container.innerHTML], { type: 'text/html' });
+                const serializer = new XMLSerializer();
+                const htmlString = serializer.serializeToString(container);
+                const richTextBlob = new Blob([htmlString], { type: 'text/html' });
                 const plainTextBlob = new Blob([container.textContent || ''], { type: 'text/plain' });
 
                 // 使用新的Clipboard API
@@ -273,10 +295,8 @@ export class HtmlPreviewView extends ItemView {
                         // 确认找到的确实是我们要的文档
                         if (markdownView.file?.path === this.originalMarkdownPath) {
                             // 调用发布模态框
-                            const showPublishModal = (this.plugin as any).showPublishModal;
-                            
-                            if (typeof showPublishModal === 'function') {
-                                showPublishModal.call(this.plugin, markdownView);
+                            if (typeof this.plugin.showPublishModal === 'function') {
+                                this.plugin.showPublishModal.call(this.plugin, markdownView);
                             } else {
                                 new Notice('发布功能不可用');
                                 console.error('无法找到showPublishModal函数');
@@ -332,10 +352,18 @@ export class HtmlPreviewView extends ItemView {
                             font-family: Consolas, Monaco, 'Andale Mono', monospace;
                         }
                     `;
-                    doc.head.appendChild(style);
                     
-                    // 设置HTML内容
-                    doc.body.innerHTML = this.htmlContent;
+                    doc.head.appendChild(style);
+                    doc.body.classList.add('html-preview-iframe-content');
+                    
+                    // 使用DOMParser安全地解析HTML
+                    const parser = new DOMParser();
+                    const parsedContent = parser.parseFromString(this.htmlContent, 'text/html');
+                    
+                    // 使用安全的DOM API复制内容
+                    Array.from(parsedContent.body.childNodes).forEach(node => {
+                        doc.body.appendChild(doc.importNode(node, true));
+                    });
                 }
             };
 
@@ -484,27 +512,21 @@ export async function showHtmlPreview(this: EnhancedPublisherPlugin, markdownVie
             // 更新视图内容和元数据
             leaf.view.htmlContent = htmlContent;
             
-            // 如果视图是HtmlPreviewView的实例，更新元数据
-            if ('documentTitle' in leaf.view) {
-                (leaf.view as any).documentTitle = documentTitle;
-            }
+            // 设置文档标题
+            const htmlView = leaf.view;
+            htmlView.documentTitle = documentTitle;
             
-            // 更新原始文档路径并重新注册监听器
-            if ('originalMarkdownPath' in leaf.view) {
-                const oldPath = (leaf.view as any).originalMarkdownPath;
-                (leaf.view as any).originalMarkdownPath = originalMarkdownPath;
-                
-                // 重要：重置删除通知状态，确保在显示新文档时移除旧的警告
-                if ('hasShownDeletionNotice' in leaf.view) {
-                    (leaf.view as any).hasShownDeletionNotice = false;
-                }
-                
-                // 如果文档路径改变，重新注册监听器
-                if (oldPath !== originalMarkdownPath && originalMarkdownPath) {
-                    (leaf.view as HtmlPreviewView).registerActiveDocumentListener(originalMarkdownPath);
-                    // 同时重新注册文件变化监听器
-                    (leaf.view as HtmlPreviewView).registerFileChangeListener();
-                }
+            // 获取旧路径并更新原始文档路径
+            const oldPath = htmlView.originalMarkdownPath;
+            htmlView.originalMarkdownPath = originalMarkdownPath;
+            
+            // 重置删除通知状态
+            htmlView.hasShownDeletionNotice = false;
+            
+            // 如果文档路径改变，重新注册监听器
+            if (oldPath !== originalMarkdownPath && originalMarkdownPath) {
+                htmlView.registerActiveDocumentListener(originalMarkdownPath);
+                htmlView.registerFileChangeListener();
             }
             
             // 重新渲染视图前移除所有警告
@@ -551,7 +573,7 @@ export async function markdownToHtml(this: EnhancedPublisherPlugin, markdown: st
                 // 创建img元素替换span
                 const img = document.createElement('img');
                 if (alt) img.setAttribute('alt', alt);
-                img.style.maxWidth = '100%';
+                img.classList.add('html-preview-image');
                 
                 // 处理img的src
                 await processImageSrc(img, src, this);
@@ -566,7 +588,9 @@ export async function markdownToHtml(this: EnhancedPublisherPlugin, markdown: st
     
     await processImages();
     
-    return tempDiv.innerHTML;
+    // 使用XMLSerializer安全获取HTML内容，而不是使用innerHTML
+    const serializer = new XMLSerializer();
+    return serializer.serializeToString(tempDiv);
 }
 
 // 判断文件是否为图片
@@ -603,9 +627,7 @@ async function processImageSrc(img: HTMLImageElement, src: string, plugin: Enhan
         img.setAttribute('src', resourceUrl);
         
         // 设置图片样式
-        img.style.maxWidth = '100%';
-        img.style.height = 'auto';
-        img.style.objectFit = 'contain';
+        img.classList.add('html-preview-image');
         
     } catch (error) {
         console.error(`处理图片失败: ${src}`, error);
