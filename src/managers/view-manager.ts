@@ -288,58 +288,97 @@ export class ViewManager {
                         // 标记为编辑状态
                         imageTitle.classList.add('has-focus', 'is-being-renamed');
                         
-                        // 获取位置和尺寸
-                        const rect = innerContent.getBoundingClientRect();
+                        // 保存原始文本用于取消操作
+                        const originalText = fileName;
                         
-                        // 创建输入框
-                        const inputEl = document.createElement('input');
-                        inputEl.type = 'text';
-                        inputEl.value = fileName;
-                        inputEl.className = 'enhanced-publisher-rename-input';
+                        // 使内容容器可编辑
+                        innerContent.setAttribute('contenteditable', 'true');
+                        innerContent.focus();
                         
-                        // 设置位置和尺寸（这些是动态计算的值，必须在JS中设置）
-                        inputEl.style.left = rect.left + 'px';
-                        inputEl.style.top = rect.top + 'px';
-                        inputEl.style.width = rect.width + 'px';
-                        inputEl.style.height = rect.height + 'px';
+                        // 选择所有文本
+                        const selection = window.getSelection();
+                        if (selection) {
+                            const range = document.createRange();
+                            range.selectNodeContents(innerContent);
+                            selection.removeAllRanges();
+                            selection.addRange(range);
+                        }
                         
-                        // 添加到文档
-                        document.body.appendChild(inputEl);
+                        // 阻止input事件冒泡
+                        const handleInput = (e: Event) => {
+                            e.stopPropagation();
+                            e.stopImmediatePropagation();
+                        };
                         
-                        // 聚焦输入框并选择全部文本
-                        inputEl.focus();
-                        inputEl.select();
+                        // 阻止复合输入事件冒泡（用于输入法编辑器）
+                        const handleComposition = (e: CompositionEvent) => {
+                            e.stopPropagation();
+                        };
+                        
+                        // 阻止其他相关事件冒泡
+                        const preventPropagation = (e: Event) => {
+                            e.stopPropagation();
+                        };
+                        
+                        // 确保事件只被添加一次
+                        innerContent.removeEventListener('input', handleInput);
+                        innerContent.addEventListener('input', handleInput, true);
+                        
+                        innerContent.removeEventListener('compositionstart', handleComposition);
+                        innerContent.removeEventListener('compositionupdate', handleComposition);
+                        innerContent.removeEventListener('compositionend', handleComposition);
+                        innerContent.addEventListener('compositionstart', handleComposition, true);
+                        innerContent.addEventListener('compositionupdate', handleComposition, true);
+                        innerContent.addEventListener('compositionend', handleComposition, true);
+                        
+                        // 其他编辑相关事件
+                        innerContent.removeEventListener('paste', preventPropagation);
+                        innerContent.removeEventListener('cut', preventPropagation);
+                        innerContent.removeEventListener('copy', preventPropagation);
+                        innerContent.addEventListener('paste', preventPropagation, true);
+                        innerContent.addEventListener('cut', preventPropagation, true);
+                        innerContent.addEventListener('copy', preventPropagation, true);
                         
                         // 处理输入完成
                         const finishRenaming = async (save: boolean) => {
                             // 获取新文件名
-                            const newName = save ? inputEl.value.trim() : fileName;
-                            
-                            // 移除输入框（先检查元素是否仍存在于文档中）
-                            if (inputEl.parentNode === document.body) {
-                                document.body.removeChild(inputEl);
-                            }
+                            const newName = save ? (innerContent.textContent || '').trim() : originalText;
                             
                             // 移除编辑状态
                             imageTitle.classList.remove('has-focus', 'is-being-renamed');
+                            innerContent.removeAttribute('contenteditable');
+                            
+                            // 移除所有事件监听器
+                            innerContent.removeEventListener('input', handleInput, true);
+                            innerContent.removeEventListener('compositionstart', handleComposition, true);
+                            innerContent.removeEventListener('compositionupdate', handleComposition, true);
+                            innerContent.removeEventListener('compositionend', handleComposition, true);
+                            innerContent.removeEventListener('paste', preventPropagation, true);
+                            innerContent.removeEventListener('cut', preventPropagation, true);
+                            innerContent.removeEventListener('copy', preventPropagation, true);
+                            innerContent.removeEventListener('blur', handleBlur);
+                            
+                            // 重置内容为原始文件名，如果后续重命名成功会通过刷新视图更新
+                            innerContent.textContent = fileName;
                             
                             // 如果文件名有变化且不为空，执行重命名
                             if (save && newName && newName !== fileName && newName.length > 0) {
-                                // 构建新的文件路径
-                                const folderPath = image.path.substring(0, image.path.lastIndexOf('/'));
-                                const newPath = `${folderPath}/${newName}.${fileExt}`;
-                                
                                 try {
-                                    // 执行重命名操作
-                                    await this.app.vault.rename(image, newPath);
+                                    // 使用Obsidian的fileManager执行重命名
+                                    const newFileName = `${newName}.${fileExt}`;
+                                    const newPath = image.parent 
+                                        ? `${image.parent.path}/${newFileName}` 
+                                        : newFileName;
                                     
-                                    // 获取相关文档路径并刷新视图
+                                    // 使用Obsidian的API执行实际重命名操作
+                                    await this.app.fileManager.renameFile(image, newPath);
+                                    
+                                    // 刷新视图以显示新名称
+                                    const folderPath = image.path.substring(0, image.path.lastIndexOf('/'));
                                     if (folderPath.endsWith(CONSTANTS.ASSETS_FOLDER_SUFFIX)) {
                                         const docPath = folderPath.substring(0, folderPath.lastIndexOf(CONSTANTS.ASSETS_FOLDER_SUFFIX)) + '.md';
                                         this.refreshDocumentView(docPath, true);
                                     }
-                                    
-                                    // new Notice('重命名成功');
                                 } catch (error) {
                                     console.error('重命名图片失败:', error);
                                     new Notice(`重命名失败: ${error instanceof Error ? error.message : String(error)}`);
@@ -351,30 +390,60 @@ export class ViewManager {
                         const handleKeyDown = (e: KeyboardEvent) => {
                             if (e.key === 'Enter') {
                                 e.preventDefault();
+                                e.stopPropagation(); // 阻止事件冒泡
                                 // 先移除所有事件监听器，避免重复处理
-                                inputEl.removeEventListener('keydown', handleKeyDown);
-                                inputEl.removeEventListener('blur', handleBlur);
+                                innerContent.removeEventListener('keydown', handleKeyDown);
+                                innerContent.removeEventListener('input', handleInput, true);
+                                innerContent.removeEventListener('compositionstart', handleComposition, true);
+                                innerContent.removeEventListener('compositionupdate', handleComposition, true);
+                                innerContent.removeEventListener('compositionend', handleComposition, true);
+                                innerContent.removeEventListener('paste', preventPropagation, true);
+                                innerContent.removeEventListener('cut', preventPropagation, true);
+                                innerContent.removeEventListener('copy', preventPropagation, true);
+                                innerContent.removeEventListener('blur', handleBlur);
                                 finishRenaming(true);
                             } else if (e.key === 'Escape') {
                                 e.preventDefault();
+                                e.stopPropagation(); // 阻止事件冒泡
                                 // 先移除所有事件监听器，避免重复处理
-                                inputEl.removeEventListener('keydown', handleKeyDown);
-                                inputEl.removeEventListener('blur', handleBlur);
+                                innerContent.removeEventListener('keydown', handleKeyDown);
+                                innerContent.removeEventListener('input', handleInput, true);
+                                innerContent.removeEventListener('compositionstart', handleComposition, true);
+                                innerContent.removeEventListener('compositionupdate', handleComposition, true);
+                                innerContent.removeEventListener('compositionend', handleComposition, true);
+                                innerContent.removeEventListener('paste', preventPropagation, true);
+                                innerContent.removeEventListener('cut', preventPropagation, true);
+                                innerContent.removeEventListener('copy', preventPropagation, true);
+                                innerContent.removeEventListener('blur', handleBlur);
                                 finishRenaming(false);
                             }
                         };
                         
-                        inputEl.addEventListener('keydown', handleKeyDown);
+                        // 确保事件只被添加一次
+                        innerContent.removeEventListener('keydown', handleKeyDown);
+                        innerContent.addEventListener('keydown', handleKeyDown);
                         
                         // 处理失焦事件
                         const handleBlur = () => {
-                            // 移除事件监听器，避免重复处理
-                            inputEl.removeEventListener('blur', handleBlur);
-                            inputEl.removeEventListener('keydown', handleKeyDown);
-                            finishRenaming(true);
+                            // 检查元素是否仍然存在于DOM中
+                            if (document.body.contains(innerContent)) {
+                                // 移除事件监听器，避免重复处理
+                                innerContent.removeEventListener('blur', handleBlur);
+                                innerContent.removeEventListener('keydown', handleKeyDown);
+                                innerContent.removeEventListener('input', handleInput, true);
+                                innerContent.removeEventListener('compositionstart', handleComposition, true);
+                                innerContent.removeEventListener('compositionupdate', handleComposition, true);
+                                innerContent.removeEventListener('compositionend', handleComposition, true);
+                                innerContent.removeEventListener('paste', preventPropagation, true);
+                                innerContent.removeEventListener('cut', preventPropagation, true);
+                                innerContent.removeEventListener('copy', preventPropagation, true);
+                                finishRenaming(true);
+                            }
                         };
                         
-                        inputEl.addEventListener('blur', handleBlur);
+                        // 确保事件只被添加一次
+                        innerContent.removeEventListener('blur', handleBlur);
+                        innerContent.addEventListener('blur', handleBlur);
                     });
             });
 
