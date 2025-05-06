@@ -1,4 +1,4 @@
-# Obsidian增强发布插件
+# Enhanced Publisher（增强发布）插件
 
 这是一个为Obsidian设计的增强发布插件，提供以下功能：
 

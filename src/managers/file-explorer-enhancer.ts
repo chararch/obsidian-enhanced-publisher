@@ -246,44 +246,6 @@ export class FileExplorerEnhancer {
                 .tree-item-self[data-path$="${CONSTANTS.ASSETS_FOLDER_SUFFIX}"] ~ .tree-item-children {
                     display: none !important;
                 }
-                
-                /* 有图片的文档样式 */
-                .has-images .nav-file-title,
-                .has-images .tree-item-self {
-                }
-                
-                /* 图片容器样式 */
-                .document-images-container {
-                }
-                
-                /* 展开指示器样式 */
-                .image-expand-indicator {
-                }
-                
-                /* 图片项样式 */
-                .document-images-container .nav-file-title,
-                .document-images-container .tree-item-self {
-                }
-
-                /* 编辑状态样式 */
-                .nav-file-title.is-being-renamed {
-                    background-color: var(--background-modifier-form-field);
-                }
-
-                /* 重命名输入框样式 */
-                .enhanced-publisher-rename-input {
-                    font-family: inherit;
-                    font-size: inherit;
-                    border: none !important;
-                    outline: none !important;
-                    box-shadow: none !important;
-                    border-radius: 0 !important;
-                    padding: 0 4px !important;
-                    margin: 0 !important;
-                    background-color: var(--background-modifier-form-field);
-                    -webkit-appearance: none;
-                    appearance: none;
-                } 
             `;
         }
 

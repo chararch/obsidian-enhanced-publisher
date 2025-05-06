@@ -1,4 +1,4 @@
-import { App, MarkdownRenderer, MarkdownView, Notice, Modal, Plugin, ItemView, WorkspaceLeaf, ViewStateResult, TFile, TAbstractFile } from 'obsidian';
+import { App, MarkdownRenderer, MarkdownView, Notice, Modal, Plugin, ItemView, WorkspaceLeaf, ViewStateResult, TFile, TAbstractFile, arrayBufferToBase64 } from 'obsidian';
 import EnhancedPublisherPlugin from './main';
 import { CONSTANTS } from './constants';
 import { log } from 'console';
@@ -221,25 +221,20 @@ export class HtmlPreviewView extends ItemView implements HtmlPreviewCustomProper
                                 continue;
                             }
 
-                            // 将app://格式的URL转换为vault相对路径
-                            const vaultPath = await findAttachmentPath(this.plugin, currentFile, fileName);
-                            if (!vaultPath) {
+                            // 使用Obsidian API查找文件
+                            const linkedFile = this.plugin.app.metadataCache.getFirstLinkpathDest(fileName, currentFile.path);
+                            if (!linkedFile || !(linkedFile instanceof TFile)) {
                                 console.error(`无法找到图片文件: ${fileName}`);
                                 continue;
                             }
                             
-                            // 读取图片文件
-                            const imgFile = this.plugin.app.vault.getAbstractFileByPath(vaultPath);
+                            // 读取图片数据
+                            const arrayBuffer = await this.plugin.app.vault.readBinary(linkedFile);
+                            const base64String = arrayBufferToBase64(arrayBuffer);
+                            const mimeType = getMimeType(linkedFile.extension);
                             
-                            if (imgFile instanceof TFile) {
-                                // 读取图片数据
-                                const arrayBuffer = await this.plugin.app.vault.readBinary(imgFile);
-                                const base64String = arrayBufferToBase64(arrayBuffer);
-                                const mimeType = getMimeType(imgFile.extension);
-                                
-                                // 更新图片src为base64
-                                img.src = `data:${mimeType};base64,${base64String}`;
-                            }
+                            // 更新图片src为base64
+                            img.src = `data:${mimeType};base64,${base64String}`;
                         } catch (imgError) {
                             console.error('处理图片失败:', imgError);
                             // 继续处理其他图片
@@ -548,7 +543,8 @@ export async function markdownToHtml(this: EnhancedPublisherPlugin, markdown: st
     
     // 使用Obsidian内部的Markdown渲染器
     const tempDiv = document.createElement('div');
-    await MarkdownRenderer.renderMarkdown(
+    await MarkdownRenderer.render(
+        this.app,
         processedMarkdown,
         tempDiv,
         '',
@@ -607,23 +603,25 @@ async function processImageSrc(img: HTMLImageElement, src: string, plugin: Enhan
         // 获取当前活跃文件的路径
         const activeFile = plugin.app.workspace.getActiveFile();
         if (!activeFile) return;
-        
-        // 构建图片的绝对路径
-        const imgPath = await findAttachmentPath(plugin, activeFile, src);
-        if (!imgPath) {
-            console.error(`找不到图片: ${src}`);
+
+        // 从 src 中提取文件名
+        let fileName = src.split('/').pop();
+        if (!fileName) return;
+
+        // 如果文件名包含查询参数，去除它们
+        if (fileName.includes('?')) {
+            fileName = fileName.split('?')[0];
+        }
+
+        // 使用 Obsidian API 查找文件
+        const linkedFile = plugin.app.metadataCache.getFirstLinkpathDest(fileName, activeFile.path);
+        if (!linkedFile || !(linkedFile instanceof TFile)) {
+            console.error(`找不到图片: ${fileName}`);
             return;
         }
 
-        // 获取图片文件对象
-        const imgFile = plugin.app.vault.getAbstractFileByPath(imgPath);
-        if (!(imgFile instanceof TFile)) {
-            console.error(`图片文件无效: ${imgPath}`);
-            return;
-        }
-
-        // 使用Obsidian的API获取资源URL
-        const resourceUrl = await plugin.app.vault.adapter.getResourcePath(imgPath);
+        // 使用 Obsidian 的 API 获取资源 URL
+        const resourceUrl = await plugin.app.vault.adapter.getResourcePath(linkedFile.path);
         img.setAttribute('src', resourceUrl);
         
         // 设置图片样式
@@ -632,122 +630,6 @@ async function processImageSrc(img: HTMLImageElement, src: string, plugin: Enhan
     } catch (error) {
         console.error(`处理图片失败: ${src}`, error);
     }
-}
-
-// 查找附件的真实路径
-export async function findAttachmentPath(plugin: EnhancedPublisherPlugin, activeFile: TFile, filename: string): Promise<string | null> {
-    // 如果已经是完整路径，直接返回
-    if (await plugin.app.vault.adapter.exists(filename)) {
-        return filename;
-    }
-    
-    // 处理已知的相对路径格式
-    if (filename.startsWith('./') || filename.startsWith('../') || filename.startsWith('/')) {
-        let resolvedPath = filename;
-        
-        if (filename.startsWith('./')) {
-            // 处理相对路径
-            const folderPath = activeFile.path.substring(0, activeFile.path.lastIndexOf('/'));
-            resolvedPath = `${folderPath}/${filename.substring(2)}`;
-        } else if (filename.startsWith('../')) {
-            // 处理上级目录路径
-            const folderPath = activeFile.path.substring(0, activeFile.path.lastIndexOf('/'));
-            const parentPath = folderPath.substring(0, folderPath.lastIndexOf('/'));
-            resolvedPath = `${parentPath}/${filename.substring(3)}`;
-        } else if (filename.startsWith('/')) {
-            // 处理绝对路径（从vault根目录开始）
-            resolvedPath = filename.substring(1);
-        }
-        
-        if (await plugin.app.vault.adapter.exists(resolvedPath)) {
-            return resolvedPath;
-        }
-    }
-    
-    // 1. 尝试Obsidian样式的附件文件夹（当前文档同名 + __assets）
-    const baseName = activeFile.path.substring(0, activeFile.path.lastIndexOf('.'));
-    const possiblePaths = [
-        // 我们插件的格式：文档名__assets
-        `${baseName}__assets/${filename}`,
-        // Obsidian默认样式：文档名_attachments
-        `${baseName}_attachments/${filename}`,
-        // 同名文件夹
-        `${baseName}/${filename}`,
-        // 同目录
-        `${activeFile.path.substring(0, activeFile.path.lastIndexOf('/'))}/${filename}`,
-    ];
-    
-    // 2. 检查这些路径是否存在
-    for (const path of possiblePaths) {
-        if (await plugin.app.vault.adapter.exists(path)) {
-            return path;
-        }
-    }
-    
-    // 3. 尝试常见的全局附件文件夹
-    const commonAttachmentFolders = [
-        'attachments',
-        'assets',
-        'images',
-        'resources',
-        '_resources',
-        '_attachments'
-    ];
-    
-    for (const folder of commonAttachmentFolders) {
-        const path = `${folder}/${filename}`;
-        if (await plugin.app.vault.adapter.exists(path)) {
-            return path;
-        }
-    }
-    
-    // 4. 尝试使用Obsidian的元数据API找出链接
-    try {
-        // 使用getFirstLinkpathDest查找链接目标
-        const linkpath = filename;
-        const linkedFile = plugin.app.metadataCache.getFirstLinkpathDest(linkpath, activeFile.path);
-        
-        if (linkedFile && linkedFile instanceof TFile) {
-            return linkedFile.path;
-        }
-        
-        // 尝试直接按文件名搜索
-        const files = plugin.app.vault.getFiles();
-        const matchingFile = files.find(f => f.name === filename);
-        if (matchingFile) {
-            return matchingFile.path;
-        }
-    } catch (error) {
-        console.error('通过元数据API查找图片失败:', error);
-    }
-    
-    // 5. 尝试在当前保险库中搜索此文件名
-    try {
-        const vaultFiles = plugin.app.vault.getFiles();
-        for (const file of vaultFiles) {
-            if (file.name === filename) {
-                return file.path;
-            }
-        }
-    } catch (error) {
-        console.error('在保险库中搜索文件失败:', error);
-    }
-    
-    // 所有方法都失败，返回null
-    return null;
-}
-
-// 帮助函数：将ArrayBuffer转换为base64字符串
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-    let binary = '';
-    const bytes = new Uint8Array(buffer);
-    const len = bytes.byteLength;
-    
-    for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    
-    return window.btoa(binary);
 }
 
 // 获取文件的MIME类型

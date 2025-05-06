@@ -1,15 +1,17 @@
-import { Editor, MarkdownView, Notice, TFile } from 'obsidian';
+import { Editor, MarkdownView, Notice, TFile, TFolder } from 'obsidian';
 import { CONSTANTS } from './constants';
 import { Logger } from './utils/logger';
+import { App } from 'obsidian';
 
 // 导入主插件类型（仅用于TypeScript类型检查）
 type EnhancedPublisherPlugin = any;
 
 // 定义插件接口，用于TypeScript类型检查
 export interface EnhancedPublisherPluginInterface {
+    app: App;
     viewManager?: any;
-    app: any;
     settings: any;
+    registerEvent(event: any): void;
 }
 
 /**
@@ -58,10 +60,25 @@ export async function handlePasteEvent(
         // 构建图片保存路径
         const assetsPath = activeFile.path.replace(/\.md$/, CONSTANTS.ASSETS_FOLDER_SUFFIX);
         
-        // 检查资源文件夹是否存在，不存在则创建
-        let folder = this.app.vault.getAbstractFileByPath(assetsPath);
-        if (!folder) {
-            folder = await this.app.vault.createFolder(assetsPath);
+        // 检查资源文件夹是否存在
+        const existingItem = this.app.vault.getAbstractFileByPath(assetsPath);
+        let folder: TFolder;
+        
+        // 如果路径被文件占用，提示用户
+        if (existingItem instanceof TFile) {
+            new Notice(`无法创建资源文件夹，已存在文件 "${assetsPath}" 。请手动删除或重命名该文件。`);
+            throw new Error(`路径 "${assetsPath}" 已被文件占用`);
+        }
+        
+        // 如果不是文件夹，则创建
+        if (!(existingItem instanceof TFolder)) {
+            try {
+                folder = await this.app.vault.createFolder(assetsPath);
+            } catch (error) {
+                throw new Error(`创建资源文件夹失败: ${error.message}`);
+            }
+        } else {
+            folder = existingItem;
         }
         
         // 创建唯一文件名

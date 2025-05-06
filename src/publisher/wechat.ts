@@ -1,7 +1,6 @@
 import { Notice, requestUrl, TFile } from 'obsidian';
 import EnhancedPublisherPlugin from '../main';
 import { getOrCreateMetadata, isImageUploaded, addImageMetadata, updateMetadata, updateDraftMetadata } from '../types/metadata';
-import { findAttachmentPath } from '../html-preview';
 import { App } from 'obsidian';
 import { Logger } from '../utils/logger';
 
@@ -317,23 +316,17 @@ export class WechatPublisher {
             
             if (!imageMetadata) {
                 // 将app://格式的URL转换为vault相对路径
-                const vaultPath = await findAttachmentPath(this.plugin, file, fileName);
-                if (!vaultPath) {
-                    this.logger.error(`无法找到图片文件: ${imagePath}`);
+                const linkedFile = this.plugin.app.metadataCache.getFirstLinkpathDest(fileName, file.path);
+                if (!linkedFile || !(linkedFile instanceof TFile)) {
+                    this.logger.error(`无法找到图片文件: ${fileName}`);
                     return null;
                 }
                 
-                // 读取图片文件
-                const imageFile = this.app.vault.getAbstractFileByPath(vaultPath);
-                if (!(imageFile instanceof TFile)) {
-                    this.logger.error(`无法找到图片文件: ${vaultPath}`);
-                    return null;
-                }
-                
-                const imageArrayBuffer = await this.app.vault.readBinary(imageFile);
+                // 读取图片数据
+                const arrayBuffer = await this.plugin.app.vault.readBinary(linkedFile);
                 
                 // 上传图片到微信
-                const uploadResult = await this.uploadImageAndGetUrl(imageArrayBuffer, fileName);
+                const uploadResult = await this.uploadImageAndGetUrl(arrayBuffer, fileName);
                 
                 if (!uploadResult) return null;
                 

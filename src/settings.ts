@@ -38,11 +38,6 @@ export class EnhancedPublisherSettingTab extends PluginSettingTab {
 		const {containerEl} = this;
 		containerEl.empty();
 
-		// 使用设置项作为主标题
-		new Setting(containerEl)
-			.setName('基本')
-			.setHeading();
-
 		// 图片自动保存设置
 		new Setting(containerEl)
 			.setName('自动保存图片')
