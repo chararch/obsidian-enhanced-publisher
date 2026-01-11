@@ -1,6 +1,6 @@
 {
   "name": "obsidian-enhanced-publisher",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "增强的Obsidian发布插件，支持图片自动存储、HTML预览和发布到微信公众号等内容平台",
   "main": "main.js",
   "scripts": {
