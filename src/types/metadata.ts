@@ -1,8 +1,8 @@
- 
+
 import { TFile, TFolder, Vault } from 'obsidian';
 import { join } from 'path';
 
- // 图片元数据接口
+// 图片元数据接口
 export interface ImageMetadata {
     fileName: string;
     url: string;
@@ -37,29 +37,37 @@ export async function getOrCreateMetadata(vault: Vault, file: TFile): Promise<Do
     // 获取文档对应的资源文件夹
     const assetsFolder = `${file.parent.path}/${file.basename}__assets`;
     const metadataPath = `${assetsFolder}/metadata.json`;
-    
+
     try {
         // 检查元数据文件是否存在
         const metadataFile = vault.getAbstractFileByPath(metadataPath);
         if (metadataFile instanceof TFile) {
             // 读取现有元数据
             const content = await vault.read(metadataFile);
-            return JSON.parse(content);
+            try {
+                return JSON.parse(content);
+            } catch (e) {
+                console.warn(`[Enhanced Publisher] Metadata file corrupted: ${metadataPath}`, e);
+                // 备份损坏的文件
+                const backupPath = `${metadataPath}.corrupt.${Date.now()}`;
+                await vault.rename(metadataFile, backupPath);
+                // 将被视为文件不存在，并在下方创建新的
+            }
         }
-        
+
         // 如果元数据文件不存在，创建新的元数据对象
         const newMetadata: DocumentMetadata = {
             images: {}
         };
-        
+
         // 确保资源文件夹存在
         if (!vault.getAbstractFileByPath(assetsFolder)) {
             await vault.createFolder(assetsFolder);
         }
-        
+
         // 创建元数据文件
         await vault.create(metadataPath, JSON.stringify(newMetadata, null, 2));
-        
+
         return newMetadata;
     } catch (error) {
         console.error('处理元数据文件时出错:', error);

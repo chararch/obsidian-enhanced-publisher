@@ -6,6 +6,7 @@ export interface EnhancedPublisherSettings {
 	wechatAppSecret: string;
 	autoSaveImages: boolean;
 	hideImageFolders: boolean;
+	imageAttachmentLocation: string;
 	debugMode: boolean;
 }
 
@@ -22,6 +23,7 @@ export const DEFAULT_SETTINGS: EnhancedPublisherSettings = {
 	wechatAppSecret: '',
 	autoSaveImages: true,
 	hideImageFolders: true,
+	imageAttachmentLocation: '${filename}__assets',
 	debugMode: false
 }
 
@@ -35,7 +37,7 @@ export class EnhancedPublisherSettingTab extends PluginSettingTab {
 	}
 
 	display(): void {
-		const {containerEl} = this;
+		const { containerEl } = this;
 		containerEl.empty();
 
 		// 图片自动保存设置
@@ -48,7 +50,24 @@ export class EnhancedPublisherSettingTab extends PluginSettingTab {
 					this.plugin.settings.autoSaveImages = value;
 					await this.plugin.saveSettings();
 				}));
-		
+
+		// 图片存储位置设置
+		new Setting(containerEl)
+			.setName('图片存储位置')
+			.setDesc('设置图片保存的文件夹路径。支持使用 ${filename} 代表当前文档的文件名。例如：${filename}__assets (默认) 或 attachments/${filename}')
+			.addText(text => text
+				.setPlaceholder('${filename}__assets')
+				.setValue(this.plugin.settings.imageAttachmentLocation)
+				.onChange(async (value) => {
+					this.plugin.settings.imageAttachmentLocation = value;
+					await this.plugin.saveSettings();
+
+					// 提示用户需要重启文件浏览器增强
+					if (this.plugin.settings.hideImageFolders) {
+						new Notice('设置已保存。为确保"隐藏图片文件夹"功能正常工作，建议重启插件或重新加载Obisidian。', 5000);
+					}
+				}));
+
 		// 隐藏图片文件夹设置
 		new Setting(containerEl)
 			.setName('隐藏图片文件夹')
@@ -63,7 +82,7 @@ export class EnhancedPublisherSettingTab extends PluginSettingTab {
 					// 立即更新可见性
 					new Notice(`图片文件夹已${value ? '隐藏，可点击文档查看图片' : '显示'}`);
 				}));
-		
+
 		// 调试模式设置
 		new Setting(containerEl)
 			.setName('调试模式')
@@ -79,7 +98,7 @@ export class EnhancedPublisherSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('微信公众号')
 			.setHeading();
-		
+
 		new Setting(containerEl)
 			.setName('AppID')
 			.setDesc('微信公众号的AppID')
@@ -91,7 +110,8 @@ export class EnhancedPublisherSettingTab extends PluginSettingTab {
 					this.plugin.settings.wechatAppId = value;
 					await this.plugin.saveSettings();
 				}));
-		
+
+
 		new Setting(containerEl)
 			.setName('AppSecret')
 			.setDesc('微信公众号的AppSecret')

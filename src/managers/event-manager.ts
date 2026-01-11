@@ -20,7 +20,7 @@ export class EventManager {
     private viewManager: ViewManager;
     private events: Events;
     private logger: Logger;
-    
+
     // 事务跟踪 - 解决重命名事件重复处理问题
     private _currentRenameTransactionId?: string;
     private _processedPathsInTransaction = new Set<string>();
@@ -60,17 +60,17 @@ export class EventManager {
     private startNewRenameTransaction(path: string): string {
         // 清理旧事务
         this.clearRenameTransaction();
-        
+
         // 创建新事务
         this._currentRenameTransactionId = this._generateTransactionId();
         this._processedPathsInTransaction.clear();
         this._isDocumentRenameInProgress = true;
-        
+
         // 设置事务超时（10秒后自动清理）
         this._transactionTimeout = setTimeout(() => {
             this.clearRenameTransaction();
         }, 10000);
-        
+
         return this._currentRenameTransactionId;
     }
 
@@ -82,13 +82,13 @@ export class EventManager {
             clearTimeout(this._transactionTimeout);
             this._transactionTimeout = null;
         }
-        
+
         // 只在确实有进行中的事务时才进行清理
         if (this._currentRenameTransactionId) {
             // 标记当前事务ID为已处理，防止重复触发
             if (this._currentRenameTransactionId) {
                 this._processedTransactions.add(this._currentRenameTransactionId);
-                
+
                 // 限制已处理事务集合大小，避免无限增长
                 if (this._processedTransactions.size > 50) {
                     // 移除最早的10个事务ID
@@ -96,7 +96,7 @@ export class EventManager {
                     toRemove.forEach(id => this._processedTransactions.delete(id));
                 }
             }
-            
+
             this._currentRenameTransactionId = undefined;
             this._processedPathsInTransaction.clear();
             this._isDocumentRenameInProgress = false;
@@ -110,7 +110,7 @@ export class EventManager {
         if (!this._currentRenameTransactionId) {
             return;
         }
-        
+
         this._processedPathsInTransaction.add(path);
     }
 
@@ -124,7 +124,7 @@ export class EventManager {
             if (file.path === oldPath) {
                 return;
             }
-            
+
             // 根据文件类型分发
             if (file instanceof TFile) {
                 // 处理markdown文档重命名
@@ -135,7 +135,7 @@ export class EventManager {
                     } catch (e) {
                         console.error("处理文档重命名时出错:", e);
                     }
-                } 
+                }
                 // 处理图片文件重命名
                 else if (CONSTANTS.IMAGE_EXTENSIONS.includes(`.${file.extension}`)) {
                     // 如果图片在资源文件夹中，处理图片重命名
@@ -149,7 +149,7 @@ export class EventManager {
                         }
                     }
                 }
-            } 
+            }
             // 处理资源文件夹重命名
             else if (file instanceof TFolder && this.isAssetFolder(file.path)) {
                 try {
@@ -159,9 +159,17 @@ export class EventManager {
                 }
             }
         };
-        
+
         // 注册到Obsidian事件系统
         this.app.vault.on("rename", this._renameEventListener);
+
+        // 监听文件删除事件
+        this.app.vault.on("delete", (file) => {
+            // 如果是图片被删除，尝试刷新相关文档的视图
+            if (file instanceof TFile && CONSTANTS.IMAGE_EXTENSIONS.includes(`.${file.extension}`)) {
+                this.handleImageDelete(file);
+            }
+        });
     }
 
     /**
@@ -172,9 +180,14 @@ export class EventManager {
     private async handleDocumentRenameProcess(file: TFile, oldPath: string): Promise<void> {
         // 检查目标路径是否已存在
         const newPath = file.path;
-        const oldAssetFolder = oldPath.replace(/\.md$/, CONSTANTS.ASSETS_FOLDER_SUFFIX);
-        const newAssetFolder = newPath.replace(/\.md$/, CONSTANTS.ASSETS_FOLDER_SUFFIX);
-        
+        // 3. 处理资源文件夹重命名 (使用 AssetManager)
+        // 注意：AssetManager 已有 renameAssetFolder 方法，这里可能是旧逻辑的重复？
+        // 实际上，EventManager 似乎在尝试手动处理？
+        // 为了修复错误，先替换常量。但最终应该委托给 AssetManager。
+
+        const oldAssetFolder = oldPath.replace(/\.md$/, CONSTANTS.DEFAULT_ASSETS_SUFFIX);
+        const newAssetFolder = newPath.replace(/\.md$/, CONSTANTS.DEFAULT_ASSETS_SUFFIX);
+
         // 如果目标资源文件夹已存在，先处理冲突
         try {
             const existingTargetFolder = this.app.vault.getAbstractFileByPath(newAssetFolder);
@@ -186,23 +199,23 @@ export class EventManager {
         } catch (error) {
             console.error("处理目标文件夹冲突时出错:", error);
         }
-        
+
         // 生成事务ID用于跟踪整个重命名过程
         const transactionId = this.startNewRenameTransaction(oldPath);
-        
+
         try {
             // 暂停文件浏览器DOM观察器，避免DOM频繁重建
             this.fileExplorerEnhancer.prepareMutationObserver(false);
-            
+
             // 使用DocumentManager处理文档重命名
             await this.documentManager.handleDocumentRename(file, oldPath);
-            
+
             // 处理文件浏览器中的UI更新
             this.fileExplorerEnhancer.handleDocumentRename(oldPath, file.path, transactionId);
-            
+
             // 更新视图管理器
             this.viewManager.refreshDocumentView(file.path);
-            
+
             // 分发自定义事件，通知其他组件文档已重命名
             const customEvent = new CustomEvent('enhanced-publisher:document-renamed', {
                 detail: {
@@ -212,13 +225,13 @@ export class EventManager {
                 }
             });
             window.dispatchEvent(customEvent);
-            
+
         } catch (error) {
             console.error("文档重命名过程出错:", error);
         } finally {
             // 恢复DOM观察器
             this.fileExplorerEnhancer.prepareMutationObserver(true);
-            
+
             // 清理事务
             this.clearRenameTransaction();
         }
@@ -233,7 +246,7 @@ export class EventManager {
         if (folder.path === oldPath) {
             return;
         }
-        
+
         // 检查是否正在处理文档重命名事务
         if (this._isDocumentRenameInProgress) {
             // 如果处于文档重命名过程中，此事件是由文档重命名触发的
@@ -241,11 +254,11 @@ export class EventManager {
             this.markPathAsProcessedInTransaction(folder.path);
             return;
         }
-        
+
         // 从资源文件夹路径获取文档路径
-        const oldDocPath = oldPath.replace(CONSTANTS.ASSETS_FOLDER_SUFFIX, '.md');
-        const newDocPath = folder.path.replace(CONSTANTS.ASSETS_FOLDER_SUFFIX, '.md');
-        
+        const oldDocPath = oldPath.replace(CONSTANTS.DEFAULT_ASSETS_SUFFIX, '.md');
+        const newDocPath = folder.path.replace(CONSTANTS.DEFAULT_ASSETS_SUFFIX, '.md');
+
         // 检查文档是否存在
         const docFile = this.app.vault.getAbstractFileByPath(newDocPath);
         if (docFile instanceof TFile) {
@@ -260,18 +273,18 @@ export class EventManager {
     private async handleImageRename(oldPath: string, file: TFile): Promise<void> {
         // 获取旧的图片名称
         const oldImageName = oldPath.split('/').pop() || '';
-        
+
         this.logger.debug(`处理图片重命名：${oldPath} -> ${file.path}`);
-        
+
         // 暂停DOM观察器，避免重复处理
         this.fileExplorerEnhancer.prepareMutationObserver(false);
-        
+
         try {
             // 搜索引用该图片的文档
             this.logger.debug(`搜索引用图片的文档...`);
             const referencingDocs = await this.documentManager.findReferencingDocs(oldImageName);
             this.logger.debug(`找到 ${referencingDocs.length} 个引用该图片的文档`);
-            
+
             // 更新每个文档中的图片引用
             let updatedCount = 0;
             for (const docFile of referencingDocs) {
@@ -281,12 +294,25 @@ export class EventManager {
                     updatedCount++;
                 }
             }
-            
+
             this.logger.debug(`已更新 ${updatedCount} 个文档的图片引用`);
-            
+
         } finally {
             // 恢复DOM观察器
             this.fileExplorerEnhancer.prepareMutationObserver(true);
+        }
+    }
+
+    /**
+     * 处理图片删除事件
+     */
+    private handleImageDelete(file: TFile): void {
+        // 使用 AssetManager 的缓存反向查找文档路径
+        const docPath = this.assetManager.getDocumentPathFromImagePath(file.path);
+
+        if (docPath) {
+            this.logger.debug(`检测到图片删除: ${file.path}，刷新文档: ${docPath}`);
+            this.viewManager.refreshDocumentView(docPath, true);
         }
     }
 
@@ -312,7 +338,7 @@ export class EventManager {
      * @param path 文件夹路径
      */
     private isAssetFolder(path: string): boolean {
-        return path.endsWith(CONSTANTS.ASSETS_FOLDER_SUFFIX);
+        return path.endsWith(CONSTANTS.DEFAULT_ASSETS_SUFFIX);
     }
 
     /**
@@ -323,7 +349,7 @@ export class EventManager {
         if (this._renameEventListener) {
             this.app.vault.off("rename", this._renameEventListener);
         }
-        
+
         // 清理事务状态
         this.clearRenameTransaction();
     }

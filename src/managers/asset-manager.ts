@@ -1,15 +1,26 @@
 import { App, TFile, TFolder } from 'obsidian';
 import { CONSTANTS } from '../constants';
+import { EnhancedPublisherSettings } from '../settings';
+import { getPathFromPattern } from '../utils/path-utils';
 
 /**
  * 资源管理器 - 负责处理资源文件夹的各种操作
  */
 export class AssetManager {
     private app: App;
+    private settings: EnhancedPublisherSettings;
     private cachedAssetFolders: Map<string, string> = new Map(); // 文档路径 -> 资源文件夹路径
 
-    constructor(app: App) {
+    constructor(app: App, settings: EnhancedPublisherSettings) {
         this.app = app;
+        this.settings = settings;
+    }
+
+    /**
+     * 更新设置引用
+     */
+    public updateSettings(settings: EnhancedPublisherSettings): void {
+        this.settings = settings;
     }
 
     /**
@@ -21,26 +32,26 @@ export class AssetManager {
 
     /**
      * 检测所有资源文件夹
+     * 改为遍历所有 Markdown 文件，根据设置计算出预期的资源目录，如果存在则记录
      */
     public async detectAssetFolders(): Promise<Map<string, string>> {
         this.cachedAssetFolders.clear();
-        
-        // 获取所有文件夹
-        const folders = this.app.vault.getAllLoadedFiles()
-            .filter((file): file is TFolder => file instanceof TFolder);
-        
-        // 筛选出资源文件夹（以__assets结尾）
-        for (const folder of folders) {
-            if (folder.path.endsWith(CONSTANTS.ASSETS_FOLDER_SUFFIX)) {
-                const docPath = folder.path.replace(CONSTANTS.ASSETS_FOLDER_SUFFIX, '.md');
-                const docFile = this.app.vault.getAbstractFileByPath(docPath);
-                
-                if (docFile instanceof TFile) {
-                    this.cachedAssetFolders.set(docPath, folder.path);
-                }
+
+        // 获取所有 Markdown 文件
+        const mdFiles = this.app.vault.getMarkdownFiles();
+
+        // 遍历所有文档
+        for (const file of mdFiles) {
+            // 根据当前设置计算预期的资源文件夹路径
+            const expectedAssetPath = getPathFromPattern(this.settings.imageAttachmentLocation, file);
+
+            // 检查该文件夹是否存在
+            const folder = this.app.vault.getAbstractFileByPath(expectedAssetPath);
+            if (folder instanceof TFolder) {
+                this.cachedAssetFolders.set(file.path, expectedAssetPath);
             }
         }
-        
+
         return this.cachedAssetFolders;
     }
 
@@ -50,20 +61,24 @@ export class AssetManager {
      * @returns 资源文件夹路径，如果不存在则返回null
      */
     public getAssetFolderForDocument(docPath: string): string | null {
-        // 如果缓存中没有，尝试构建路径并检查是否存在
-        if (!this.cachedAssetFolders.has(docPath)) {
-            const potentialAssetPath = docPath.replace(/\.md$/, CONSTANTS.ASSETS_FOLDER_SUFFIX);
-            const assetFolder = this.app.vault.getAbstractFileByPath(potentialAssetPath);
-            
-            if (assetFolder instanceof TFolder) {
-                this.cachedAssetFolders.set(docPath, potentialAssetPath);
-                return potentialAssetPath;
-            }
-            
-            return null;
+        // 先检查缓存
+        if (this.cachedAssetFolders.has(docPath)) {
+            return this.cachedAssetFolders.get(docPath) || null;
         }
-        
-        return this.cachedAssetFolders.get(docPath) || null;
+
+        // 如果缓存中没有，尝试计算并检查
+        const file = this.app.vault.getAbstractFileByPath(docPath);
+        if (file instanceof TFile) {
+            const expectedAssetPath = getPathFromPattern(this.settings.imageAttachmentLocation, file);
+            const folder = this.app.vault.getAbstractFileByPath(expectedAssetPath);
+
+            if (folder instanceof TFolder) {
+                this.cachedAssetFolders.set(docPath, expectedAssetPath);
+                return expectedAssetPath;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -72,31 +87,34 @@ export class AssetManager {
      * @returns 创建的资源文件夹路径
      */
     public async createAssetFolder(docPath: string): Promise<string> {
-        const assetPath = docPath.replace(/\.md$/, CONSTANTS.ASSETS_FOLDER_SUFFIX);
+        const file = this.app.vault.getAbstractFileByPath(docPath);
+        if (!(file instanceof TFile)) {
+            throw new Error(`文档不存在: ${docPath}`);
+        }
+
+        const assetPath = getPathFromPattern(this.settings.imageAttachmentLocation, file);
         const existingFolder = this.app.vault.getAbstractFileByPath(assetPath);
-        
+
         if (existingFolder instanceof TFolder) {
+            this.cachedAssetFolders.set(docPath, assetPath);
             return assetPath;
         }
-        
+
         // 分割路径创建嵌套文件夹
         const pathParts = assetPath.split('/');
         let currentPath = '';
-        
+
         for (let i = 0; i < pathParts.length; i++) {
-            if (i === pathParts.length - 1) {
-                // 最后一部分是文件夹名
-                await this.app.vault.createFolder(assetPath);
-            } else {
-                // 中间路径部分
-                currentPath += (currentPath ? '/' : '') + pathParts[i];
-                const folder = this.app.vault.getAbstractFileByPath(currentPath);
-                if (!folder) {
-                    await this.app.vault.createFolder(currentPath);
-                }
+            const part = pathParts[i];
+            currentPath += (currentPath ? '/' : '') + part;
+
+            // 跳过已存在的根目录或中间目录
+            const existing = this.app.vault.getAbstractFileByPath(currentPath);
+            if (!existing) {
+                await this.app.vault.createFolder(currentPath);
             }
         }
-        
+
         this.cachedAssetFolders.set(docPath, assetPath);
         return assetPath;
     }
@@ -109,45 +127,67 @@ export class AssetManager {
      */
     public async renameAssetFolder(oldDocPath: string, newDocPath: string): Promise<boolean> {
         try {
-            // 构造资源文件夹路径
-            const oldFolderPath = oldDocPath.replace(/\.md$/, CONSTANTS.ASSETS_FOLDER_SUFFIX);
-            const newFolderPath = newDocPath.replace(/\.md$/, CONSTANTS.ASSETS_FOLDER_SUFFIX);
-            
+            // 需要获取旧的文件对象来计算旧的资源路径（这有点棘手，因为文件已经重命名了）
+            // 但是我们有 oldDocPath。我们可以构造一个临时的 TFile 对象吗？或者我们需要旧的文件名？
+            // 实际上，重命名事件发生时，我们无法轻易获取"旧的文件对象"。
+            // 但我们可以根据 oldDocPath 推断出旧的文件名和旧的父目录。
+
+            const oldPathBase = oldDocPath.substring(oldDocPath.lastIndexOf('/') + 1);
+            const oldBasename = oldPathBase.substring(0, oldPathBase.lastIndexOf('.'));
+            // 旧的父目录路径
+            const oldParentPath = oldDocPath.substring(0, oldDocPath.lastIndexOf('/')) || '/';
+            // 如果 oldDocPath 没有斜杠且不为空，则父目录可能是空字符串（代表根目录），但在 getPathFromPattern 逻辑中我们通常使用 / 代表根？
+            // 让我们模拟一个简单的对象传给 getPathFromPattern
+
+            const mockOldFile = {
+                basename: oldBasename,
+                parent: { path: oldParentPath === '/' ? '/' : oldParentPath }
+            } as any; // 强制转换，只要满足接口即可
+
+            // 计算旧的文件夹路径
+            const oldFolderPath = getPathFromPattern(this.settings.imageAttachmentLocation, mockOldFile);
+
+            // 计算新的文件夹路径
+            const newFile = this.app.vault.getAbstractFileByPath(newDocPath);
+            if (!(newFile instanceof TFile)) return false;
+
+            const newFolderPath = getPathFromPattern(this.settings.imageAttachmentLocation, newFile);
+
             // 获取文件夹对象
             const folder = this.app.vault.getAbstractFileByPath(oldFolderPath);
             if (!(folder instanceof TFolder)) {
                 return false;
             }
-            
+
             // 检查目标文件夹是否已存在
             const existingFolder = this.app.vault.getAbstractFileByPath(newFolderPath);
             if (existingFolder) {
                 // 更新缓存但不执行重命名
                 this.cachedAssetFolders.delete(oldDocPath);
                 this.cachedAssetFolders.set(newDocPath, newFolderPath);
-                
+
                 return true; // 返回成功，因为目标已存在
             }
-            
+
             // 执行重命名
             try {
                 await this.app.fileManager.renameFile(folder, newFolderPath);
-                
+
                 // 更新缓存
                 this.cachedAssetFolders.delete(oldDocPath);
                 this.cachedAssetFolders.set(newDocPath, newFolderPath);
-                
+
                 return true;
             } catch (error) {
                 // 处理特定错误
-                if (error.message && error.message.includes("already exists")) {
+                if (error instanceof Error && error.message && error.message.includes("already exists")) {
                     // 更新缓存
                     this.cachedAssetFolders.delete(oldDocPath);
                     this.cachedAssetFolders.set(newDocPath, newFolderPath);
-                    
+
                     return true;
                 }
-                
+
                 console.error("重命名资源文件夹失败:", error);
                 return false;
             }
@@ -167,11 +207,11 @@ export class AssetManager {
         if (!(folder instanceof TFolder)) {
             return [];
         }
-        
+
         // 获取文件夹中的所有文件
         const files = folder.children
             .filter((file): file is TFile => file instanceof TFile && CONSTANTS.IMAGE_EXTENSIONS.includes(`.${file.extension}`));
-            
+
         return files;
     }
 
@@ -189,61 +229,54 @@ export class AssetManager {
             if (!(docFile instanceof TFile)) {
                 return false;
             }
-            
+
             // 读取文档内容
             const content = await this.app.vault.read(docFile);
-            
+
             // 构造正则表达式，匹配图片引用
             const oldFolderName = oldAssetFolder.split('/').pop();
             const newFolderName = newAssetFolder.split('/').pop();
-            
+
             if (!oldFolderName || !newFolderName) {
                 return false;
             }
-            
+
             // 替换图片引用
+            // TODO: 这里如果引用是完整路径，可能需要更复杂的替换逻辑
+            // 目前简单替换文件夹名
             const regex = new RegExp(oldFolderName, 'g');
             const newContent = content.replace(regex, newFolderName);
-            
+
             // 检查是否有更改
             const hasChanges = content !== newContent;
-            
+
             if (hasChanges) {
                 // 写入更新后的内容
                 await this.app.vault.modify(docFile, newContent);
             }
-            
+
             return true;
         } catch (err) {
             console.error("更新图片引用失败:", err);
             return false;
         }
     }
-    
+
     /**
      * 从图片路径获取文档路径
      * @param imagePath 图片路径
      * @returns 对应的文档路径，如果无法确定则返回null
      */
     public getDocumentPathFromImagePath(imagePath: string): string | null {
-        // 从图片路径解析出文档路径
-        const parts = imagePath.split('/');
-        
-        // 查找资源文件夹名称
-        for (let i = 0; i < parts.length; i++) {
-            if (parts[i].endsWith(CONSTANTS.ASSETS_FOLDER_SUFFIX)) {
-                // 构建文档路径
-                const docPathParts = parts.slice(0, i+1);
-                const docPath = docPathParts.join('/').replace(CONSTANTS.ASSETS_FOLDER_SUFFIX, '.md');
-                
-                // 验证文档是否存在
-                const docFile = this.app.vault.getAbstractFileByPath(docPath);
-                if (docFile instanceof TFile) {
-                    return docPath;
-                }
+        // 从缓存中反向查找
+        for (const [docPath, folderPath] of this.cachedAssetFolders.entries()) {
+            if (imagePath.startsWith(folderPath + '/')) {
+                return docPath;
             }
         }
-        
+
+        // 如果缓存没有，这一步比较难，因为不知道反向规则
+        // 目前仅依赖缓存
         return null;
     }
 
@@ -253,9 +286,10 @@ export class AssetManager {
      * @returns 是否在资源文件夹中
      */
     public isInAssetFolder(path: string): boolean {
-        const parts = path.split('/');
-        for (let i = 0; i < parts.length - 1; i++) {
-            if (parts[i].endsWith(CONSTANTS.ASSETS_FOLDER_SUFFIX)) {
+        // 简单检查是否在已知的缓存文件夹中
+        // 注意：folderPath 可能不是以 / 结尾
+        for (const folderPath of this.cachedAssetFolders.values()) {
+            if (path.startsWith(folderPath + '/')) {
                 return true;
             }
         }

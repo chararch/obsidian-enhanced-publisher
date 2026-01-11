@@ -1,9 +1,9 @@
-import { 
-	App, 
-	MarkdownView, 
-	Notice, 
-	Plugin, 
-	TFile, 
+import {
+	App,
+	MarkdownView,
+	Notice,
+	Plugin,
+	TFile,
 	TFolder,
 	addIcon,
 	WorkspaceLeaf,
@@ -40,22 +40,22 @@ import { Logger } from './utils/logger';
 
 export default class EnhancedPublisherPlugin extends Plugin {
 	settings: EnhancedPublisherSettings;
-    
-    // 管理器实例
-    assetManager: AssetManager;
-    documentManager: DocumentManager;
-    fileExplorerEnhancer: FileExplorerEnhancer;
-    viewManager: ViewManager;
-    eventManager: EventManager;
-    
-    // 发布器实例
-    wechatPublisher: WechatPublisher;
-    
-    // 日志工具实例
-    logger: Logger;
-    
-    // 导出功能，便于其他模块调用
-    showPublishModal = showPublishModal;
+
+	// 管理器实例
+	assetManager: AssetManager;
+	documentManager: DocumentManager;
+	fileExplorerEnhancer: FileExplorerEnhancer;
+	viewManager: ViewManager;
+	eventManager: EventManager;
+
+	// 发布器实例
+	wechatPublisher: WechatPublisher;
+
+	// 日志工具实例
+	logger: Logger;
+
+	// 导出功能，便于其他模块调用
+	showPublishModal = showPublishModal;
 
 	async onload() {
 		// 初始化日志工具
@@ -87,18 +87,20 @@ export default class EnhancedPublisherPlugin extends Plugin {
 			HTML_PREVIEW_VIEW_TYPE,
 			(leaf) => new HtmlPreviewView(leaf, this, '', 'HTML预览', null)
 		);
-		
+
 		// 7. 初始化发布器
 		this.wechatPublisher = new WechatPublisher(this.app, this);
 	}
 
 	private initializeManagers(): void {
 		// 创建管理器实例
-		this.assetManager = new AssetManager(this.app);
+		this.assetManager = new AssetManager(this.app, this.settings);
+
+		// 初始化ViewManager
 		this.viewManager = new ViewManager(this.app, this.assetManager);
 		this.documentManager = new DocumentManager(this.app, this.assetManager);
 		this.fileExplorerEnhancer = new FileExplorerEnhancer(
-			this.app, 
+			this.app,
 			this.assetManager,
 			this.viewManager
 		);
@@ -110,7 +112,7 @@ export default class EnhancedPublisherPlugin extends Plugin {
 			this.fileExplorerEnhancer,
 			this.viewManager
 		);
-		
+
 		// 初始化管理器
 		this.assetManager.initialize();
 		this.viewManager.initialize();
@@ -120,7 +122,7 @@ export default class EnhancedPublisherPlugin extends Plugin {
 	private registerIcons(): void {
 		// 添加插件图标
 		addIcon('enhanced-publisher', '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>');
-		
+
 		// 添加文档图标
 		addIcon('file-with-images', '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><circle cx="10" cy="13" r="2"/><path d="M8 21l4-4 4 4"/></svg>');
 	}
@@ -189,7 +191,7 @@ export default class EnhancedPublisherPlugin extends Plugin {
 								}
 							});
 					});
-					
+
 					// 添加发布菜单项
 					menu.addItem((item) => {
 						item
@@ -228,7 +230,7 @@ export default class EnhancedPublisherPlugin extends Plugin {
 
 	onunload() {
 		this.logger.info('卸载增强发布插件');
-		
+
 		// 清理各管理器资源
 		this.fileExplorerEnhancer.cleanup();
 		this.viewManager.cleanup();

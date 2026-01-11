@@ -37,34 +37,30 @@ export class WechatPublisher {
 
     // 获取微信素材库列表（支持分页）
     async getWechatMaterials(
-        page: number = 0, 
+        page: number = 0,
         pageSize: number = 20
-    ): Promise<{items: WechatMaterial[], totalCount: number}> {
+    ): Promise<{ items: WechatMaterial[], totalCount: number }> {
         try {
-            // 获取访问令牌（使用新的缓存函数）
-            const accessToken = await this.getAccessToken();
-            if (!accessToken) return {items: [], totalCount: 0};
-            
-            // 获取素材列表（仅获取图片素材）
-            const materialsResponse = await requestUrl({
-                url: `https://api.weixin.qq.com/cgi-bin/material/batchget_material?access_token=${accessToken}`,
-                method: 'POST',
-                body: JSON.stringify({
-                    type: 'image',
-                    offset: page * pageSize,
-                    count: pageSize
-                })
+            const materialsResponse = await this.requestWithTokenRetry(async (token) => {
+                return requestUrl({
+                    url: `https://api.weixin.qq.com/cgi-bin/material/batchget_material?access_token=${token}`,
+                    method: 'POST',
+                    body: JSON.stringify({
+                        type: 'image',
+                        offset: page * pageSize,
+                        count: pageSize
+                    })
+                });
             });
-            
+
             if (materialsResponse.json.errcode && materialsResponse.json.errcode !== 0) {
-                this.logger.error("获取微信素材库失败: ", materialsResponse.json);
-                new Notice(`获取微信素材库失败: ${materialsResponse.json.errmsg}`);
-                return {items: [], totalCount: 0};
+                this.handleWechatError(materialsResponse.json);
+                return { items: [], totalCount: 0 };
             }
-            
+
             const items = materialsResponse.json.item || [];
             const totalCount = materialsResponse.json.total_count || 0;
-            
+
             // 更新缓存
             const cacheKey = `wechat_material_cache_page_${page}`;
             const cacheData = {
@@ -73,113 +69,86 @@ export class WechatPublisher {
                 lastUpdate: Date.now()
             };
             localStorage.setItem(cacheKey, JSON.stringify(cacheData));
-            
-            return {items, totalCount};
+
+            return { items, totalCount };
         } catch (error) {
             this.logger.error('获取微信素材库时出错:', error);
-            new Notice('获取微信素材库时出错');
-            return {items: [], totalCount: 0};
+            new Notice('获取微信素材库时出错，请检查网络或配置');
+            return { items: [], totalCount: 0 };
         }
     }
 
     // 上传图片到微信公众号（使用uploadimg接口）
     async uploadImageToWechat(imageData: ArrayBuffer, fileName: string): Promise<string> {
         try {
-            // 获取访问令牌（使用新的缓存函数）
-            const accessToken = await this.getAccessToken();
-            if (!accessToken) return '';
-            
-            // 上传图片
-            // 由于Obsidian API限制，我们无法直接使用FormData
-            // 使用multipart/form-data格式手动构建请求体
-            const boundary = '----WebKitFormBoundary' + Math.random().toString(16).substring(2);
-            const blob = new Blob([imageData]);
-            
-            // 构建multipart表单数据
-            const formDataHeader = `--${boundary}\r\nContent-Disposition: form-data; name="media"; filename="${fileName}"\r\nContent-Type: image/jpeg\r\n\r\n`;
-            const formDataFooter = `\r\n--${boundary}--`;
-            
-            // 合并表单头部、图片数据和表单尾部
-            const headerArray = new TextEncoder().encode(formDataHeader);
-            const footerArray = new TextEncoder().encode(formDataFooter);
-            
-            const combinedBuffer = new Uint8Array(headerArray.length + blob.size + footerArray.length);
-            combinedBuffer.set(headerArray, 0);
-            
-            // 将blob数据复制到combinedBuffer
-            const blobArray = new Uint8Array(await blob.arrayBuffer());
-            combinedBuffer.set(blobArray, headerArray.length);
-            
-            combinedBuffer.set(footerArray, headerArray.length + blob.size);
-            
-            const uploadResponse = await requestUrl({
-                url: `https://api.weixin.qq.com/cgi-bin/material/add_material?access_token=${accessToken}&type=image`,
-                method: 'POST',
-                headers: {
-                    'Content-Type': `multipart/form-data; boundary=${boundary}`
-                },
-                body: combinedBuffer.buffer
-            });
-            
-            if (uploadResponse.json.errcode && uploadResponse.json.errcode !== 0) {
-                this.logger.error("上传图片到微信失败: ", uploadResponse.json);
-                new Notice(`上传图片到微信失败: ${uploadResponse.json.errmsg}`);
-                return '';
-            }
-            
-            const mediaId = uploadResponse.json.media_id || '';
+            const result = await this.uploadImageAndGetUrl(imageData, fileName);
+
+            if (!result) return '';
+
+            const mediaId = result.media_id;
+
             if (mediaId) {
-                
                 // 获取现有的上传图片缓存
                 const uploadedImagesCache = localStorage.getItem('wechat_uploaded_images_cache');
                 const uploadedImages = uploadedImagesCache ? JSON.parse(uploadedImagesCache) : {};
-                
+
                 // 添加新上传的图片
                 uploadedImages[mediaId] = {
-                    url: uploadResponse.json.url,
+                    url: result.url,
                     name: fileName,
                     uploadTime: Date.now()
                 };
-                
+
                 // 更新缓存
                 localStorage.setItem('wechat_uploaded_images_cache', JSON.stringify(uploadedImages));
             }
-            
+
             return mediaId;
         } catch (error) {
             this.logger.error('上传图片到微信时出错:', error);
-            new Notice('上传图片到微信时出错');
+            // Notice is handled by uploadImageAndGetUrl or handleWechatError
             return '';
         }
     }
 
     // 获取访问令牌（带缓存）
-    async getAccessToken(): Promise<string> {
+    async getAccessToken(forceRefresh: boolean = false): Promise<string> {
         try {
             // 检查缓存
             const cacheData = localStorage.getItem('wechat_token_cache');
             const cache: TokenCache = cacheData ? JSON.parse(cacheData) : null;
-            
+
             // 如果缓存存在且未过期（有效期为110分钟，微信令牌有效期为2小时）
-            if (cache && Date.now() < cache.expireTime) {
+            // 且不强制刷新
+            if (!forceRefresh && cache && Date.now() < cache.expireTime) {
                 this.logger.debug("使用缓存的访问令牌");
                 return cache.token;
             }
-            
+
             // 重新获取访问令牌
+            // 使用 stable_token 接口 (POST)
             const tokenResponse = await requestUrl({
-                url: `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${this.plugin.settings.wechatAppId}&secret=${this.plugin.settings.wechatAppSecret}`,
-                method: 'GET'
+                url: 'https://api.weixin.qq.com/cgi-bin/stable_token',
+                method: 'POST',
+                body: JSON.stringify({
+                    grant_type: 'client_credential',
+                    appid: this.plugin.settings.wechatAppId,
+                    secret: this.plugin.settings.wechatAppSecret,
+                    force_refresh: forceRefresh
+                }),
+                headers: {
+                    'Content-Type': 'application/json'
+                }
             });
-            
+
             if (!tokenResponse.json.access_token) {
                 this.logger.error("获取微信访问令牌失败: ", tokenResponse.json);
                 new Notice('获取微信访问令牌失败');
                 return '';
             }
-            
+
             const accessToken = tokenResponse.json.access_token;
-            
+
             // 更新缓存（110分钟 = 6600000毫秒）
             const expireTime = Date.now() + 6600000;
             const newCache: TokenCache = {
@@ -187,7 +156,7 @@ export class WechatPublisher {
                 expireTime: expireTime
             };
             localStorage.setItem('wechat_token_cache', JSON.stringify(newCache));
-            
+
             return accessToken;
         } catch (error) {
             this.logger.error('获取微信访问令牌时出错:', error);
@@ -202,44 +171,50 @@ export class WechatPublisher {
         fileName: string
     ): Promise<{ url: string; media_id: string } | null> {
         try {
-            const accessToken = await this.getAccessToken();
-            if (!accessToken) return null;
-            
             const boundary = '----WebKitFormBoundary' + Math.random().toString(16).substring(2);
             const blob = new Blob([imageData]);
-            
+
             const formDataHeader = `--${boundary}\r\nContent-Disposition: form-data; name="media"; filename="${fileName}"\r\nContent-Type: image/jpeg\r\n\r\n`;
             const formDataFooter = `\r\n--${boundary}--`;
-            
+
             const headerArray = new TextEncoder().encode(formDataHeader);
             const footerArray = new TextEncoder().encode(formDataFooter);
-            
-            const combinedBuffer = new Uint8Array(headerArray.length + blob.size + footerArray.length);
+
+            const combinedBuffer = new Uint8Array(headerArray.length + imageData.byteLength + footerArray.length);
             combinedBuffer.set(headerArray, 0);
-            
-            const blobArray = new Uint8Array(await blob.arrayBuffer());
-            combinedBuffer.set(blobArray, headerArray.length);
-            combinedBuffer.set(footerArray, headerArray.length + blob.size);
-            
-            const response = await requestUrl({
-                url: `https://api.weixin.qq.com/cgi-bin/material/add_material?access_token=${accessToken}&type=image`,
-                method: 'POST',
-                headers: {
-                    'Content-Type': `multipart/form-data; boundary=${boundary}`
-                },
-                body: combinedBuffer.buffer
+
+            const imageUint8Array = new Uint8Array(imageData);
+            combinedBuffer.set(imageUint8Array, headerArray.length);
+            combinedBuffer.set(footerArray, headerArray.length + imageData.byteLength);
+
+            const response = await this.requestWithTokenRetry(async (token) => {
+                return requestUrl({
+                    url: `https://api.weixin.qq.com/cgi-bin/material/add_material?access_token=${token}&type=image`,
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': `multipart/form-data; boundary=${boundary}`
+                    },
+                    body: combinedBuffer.buffer
+                });
             });
+
             this.logger.debug(`response: ${JSON.stringify(response)}`);
-            if (response.json.errcode) {
+
+            if (response.json.errcode && response.json.errcode !== 0) {
+                this.handleWechatError(response.json);
                 throw new Error(response.json.errmsg);
             }
-            
+
             return {
                 url: response.json.url,
                 media_id: response.json.media_id
             };
         } catch (error) {
             this.logger.error('上传图片失败:', error);
+            // Notice is handled in handleWechatError or specifically here if it's a network error not caught by handleWechatError
+            if (error instanceof Error && !error.message.includes('errcode')) {
+                new Notice('上传图片失败，请检查网络或配置');
+            }
             return null;
         }
     }
@@ -253,39 +228,39 @@ export class WechatPublisher {
             if (!file.parent) {
                 throw new Error('文件必须在文件夹中');
             }
-            
+
             // 获取或创建元数据
             const metadata = await getOrCreateMetadata(this.app.vault, file);
-            
+
             // 创建临时DOM解析HTML内容
             const tempDiv = document.createElement('div');
-            
+
             // 使用安全的方法添加内容
             const parser = new DOMParser();
             const doc = parser.parseFromString(content, 'text/html');
-            
+
             // 将解析后的内容转移到临时div
             Array.from(doc.body.childNodes).forEach(node => {
                 tempDiv.appendChild(document.importNode(node, true));
             });
-            
+
             // 获取所有图片元素
             const images = tempDiv.querySelectorAll('img');
             this.logger.debug(`images: ${images}`);
-            
+
             // 处理每个图片
             for (const img of Array.from(images)) {
                 const src = img.getAttribute('src');
                 if (!src || src.startsWith('http')) continue;  // 跳过已经是http链接的图片
-                
+
                 // 处理图片并获取微信URL
                 const imageUrl = await this.processImage(src, file, metadata);
                 if (!imageUrl) continue;
-                
+
                 // 更新图片src为微信URL
                 img.setAttribute('src', imageUrl);
             }
-            
+
             // 使用XMLSerializer安全地获取HTML内容，而不是使用innerHTML
             const serializer = new XMLSerializer();
             return serializer.serializeToString(tempDiv);
@@ -305,15 +280,15 @@ export class WechatPublisher {
             // 从路径中获取文件名
             let fileName = imagePath.split('/').pop();
             if (!fileName) return null;
-            
+
             // 如果文件名包含查询参数，去除它们
             if (fileName.includes('?')) {
                 fileName = fileName.split('?')[0];
             }
-            
+
             // 检查图片是否已上传
             let imageMetadata = isImageUploaded(metadata, fileName);
-            
+
             if (!imageMetadata) {
                 // 将app://格式的URL转换为vault相对路径
                 const linkedFile = this.plugin.app.metadataCache.getFirstLinkpathDest(fileName, file.path);
@@ -321,15 +296,15 @@ export class WechatPublisher {
                     this.logger.error(`无法找到图片文件: ${fileName}`);
                     return null;
                 }
-                
+
                 // 读取图片数据
                 const arrayBuffer = await this.plugin.app.vault.readBinary(linkedFile);
-                
+
                 // 上传图片到微信
                 const uploadResult = await this.uploadImageAndGetUrl(arrayBuffer, fileName);
-                
+
                 if (!uploadResult) return null;
-                
+
                 // 保存图片元数据
                 imageMetadata = {
                     fileName,
@@ -340,7 +315,7 @@ export class WechatPublisher {
                 addImageMetadata(metadata, fileName, imageMetadata);
                 await updateMetadata(this.app.vault, file, metadata);
             }
-            
+
             return imageMetadata.url;
         } catch (error) {
             this.logger.error('处理图片时出错:', error);
@@ -356,87 +331,151 @@ export class WechatPublisher {
         file: TFile
     ): Promise<boolean> {
         try {
-            const accessToken = await this.getAccessToken();
-            if (!accessToken) return false;
-            
             // 处理文档中的图片
             const processedContent = await this.processDocumentImages(content, file);
-            
+
             // 获取元数据
             const metadata = await getOrCreateMetadata(this.app.vault, file);
-            
+
+            // 准备更新数据
             let updateData = {
                 title,
                 content: processedContent,
                 media_id: metadata.draft?.media_id,
                 item: metadata.draft?.item,
-            }
+            };
 
-            let response;
-            
-            // 检查是否存在草稿
-            if (metadata.draft?.media_id) {
-                // 更新现有草稿
-                response = await requestUrl({
-                    url: `https://api.weixin.qq.com/cgi-bin/draft/update?access_token=${accessToken}`,
-                    method: 'POST',
-                    body: JSON.stringify({
-                        media_id: metadata.draft.media_id,
-                        index: 0,
-                        articles: {
-                            title,
-                            content: processedContent,
-                            thumb_media_id,
-                            author: '',
-                            digest: '',
-                            show_cover_pic: thumb_media_id ? 1 : 0,
-                            content_source_url: '',
-                            need_open_comment: 0,
-                            only_fans_can_comment: 0
-                        }
-                    })
-                });
-                if (response.status === 200 && response.json?.media_id) {
+            // 使用带重试机制的请求
+            const response = await this.requestWithTokenRetry(async (token) => {
+                if (metadata.draft?.media_id) {
+                    // 更新现有草稿
+                    return requestUrl({
+                        url: `https://api.weixin.qq.com/cgi-bin/draft/update?access_token=${token}`,
+                        method: 'POST',
+                        body: JSON.stringify({
+                            media_id: metadata.draft.media_id,
+                            index: 0,
+                            articles: {
+                                title,
+                                content: processedContent,
+                                thumb_media_id,
+                                author: '',
+                                digest: '',
+                                show_cover_pic: thumb_media_id ? 1 : 0,
+                                content_source_url: '',
+                                need_open_comment: 0,
+                                only_fans_can_comment: 0
+                            }
+                        })
+                    });
+                } else {
+                    // 创建新草稿
+                    return requestUrl({
+                        url: `https://api.weixin.qq.com/cgi-bin/draft/add?access_token=${token}`,
+                        method: 'POST',
+                        body: JSON.stringify({
+                            articles: [{
+                                title,
+                                content: processedContent,
+                                thumb_media_id,
+                                author: '',
+                                digest: '',
+                                show_cover_pic: thumb_media_id ? 1 : 0,
+                                content_source_url: '',
+                                need_open_comment: 0,
+                                only_fans_can_comment: 0
+                            }]
+                        })
+                    });
+                }
+            });
+
+            this.logger.debug(`response: ${JSON.stringify(response)}`);
+
+            if (response.status === 200) {
+                // 检查业务错误码
+                if (response.json.errcode && response.json.errcode !== 0) {
+                    this.handleWechatError(response.json);
+                    return false;
+                }
+
+                // 成功，更新元数据
+                if (response.json.media_id) {
                     updateData.media_id = response.json.media_id;
+                }
+                if (response.json.item) {
                     updateData.item = response.json.item;
                 }
-            } else {
-                // 创建新草稿
-                response = await requestUrl({
-                    url: `https://api.weixin.qq.com/cgi-bin/draft/add?access_token=${accessToken}`,
-                    method: 'POST',
-                    body: JSON.stringify({
-                        articles: [{
-                            title,
-                            content: processedContent,
-                            thumb_media_id,
-                            author: '',
-                            digest: '',
-                            show_cover_pic: thumb_media_id ? 1 : 0,
-                            content_source_url: '',
-                            need_open_comment: 0,
-                            only_fans_can_comment: 0
-                        }]
-                    })
-                });
-            }
-            this.logger.debug(`response: ${JSON.stringify(response)}`);
-            
-            if (response.status === 200) {
-                // 更新元数据
+
                 updateDraftMetadata(metadata, updateData);
                 await updateMetadata(this.app.vault, file, metadata);
-                
+
                 new Notice('成功发布到微信公众号草稿箱');
                 return true;
             } else {
-                new Notice(`发布失败: ${response.json.errmsg || '未知错误'}`);
-                return false;
+                throw new Error(`发布失败: HTTP ${response.status}`);
             }
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error('发布到微信时出错:', error);
-            new Notice('发布到微信时出错');
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            new Notice(`发布到微信时出错: ${errorMessage}`);
             return false;
         }
+    }
+
+    // 辅助方法：执行带重试的请求
+    private async requestWithTokenRetry(requestFn: (token: string) => Promise<any>): Promise<any> {
+        const accessToken = await this.getAccessToken();
+        if (!accessToken) throw new Error("无法获取Access Token");
+
+        let response = await requestFn(accessToken);
+
+        if (response.json && [40001, 40014, 42001].includes(response.json.errcode)) {
+            this.logger.warn(`Token失效 (${response.json.errcode})，尝试刷新并重试...`);
+            const newToken = await this.getAccessToken(true);
+            if (newToken) {
+                response = await requestFn(newToken);
+            }
+        }
+
+        return response;
+    }
+
+    // 统一处理微信API错误
+    private handleWechatError(responseJson: any) {
+        const errcode = responseJson.errcode;
+        const errmsg = responseJson.errmsg;
+
+        let message = `微信API错误 (${errcode}): ${errmsg}`;
+
+        // 根据错误码提供更友好的提示
+        switch (errcode) {
+            case 40001:
+            case 40014:
+            case 42001:
+                message = "Access Token 已过期或无效，请尝试重新登录或检查配置。";
+                break;
+            case 40013:
+                message = "AppID 无效，请检查插件设置中的 AppID。";
+                break;
+            case 40003:
+                message = "OpenID 无效，请确保用户已关注公众号。";
+                break;
+            case 45009:
+                message = "接口调用超过限额，请明天再试。";
+                break;
+            case 48001:
+                message = "接口功能未授权，请确认公众号是否有相关权限。";
+                break;
+            case 40009:
+                message = "图片尺寸太大，请压缩图片后重试。";
+                break;
+            case 41005:
+                message = "缺少多媒体文件数据，请检查上传的图片是否有效。";
+                break;
+        }
+
+        this.logger.error(message);
+        new Notice(message, 5000); // 显示5秒
     }
 }
