@@ -16,17 +16,33 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # 需要完整历史来获取标签信息
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16' # 或者你需要的Node.js版本
+          node-version: '16'
 
       - name: Install dependencies
         run: npm install
 
       - name: Build plugin
-        run: npm run build # 运行构建命令，生成 main.js
+        run: npm run build
+
+      # 获取标签的注释信息作为 Release 描述
+      - name: Get tag message
+        id: tag_message
+        run: |
+          TAG_MESSAGE=$(git tag -l --format='%(contents)' ${{ github.ref_name }})
+          # 如果标签没有注释，使用默认消息
+          if [ -z "$TAG_MESSAGE" ]; then
+            TAG_MESSAGE="Release ${{ github.ref_name }}"
+          fi
+          # 使用 EOF 处理多行内容
+          echo "message<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAG_MESSAGE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       # --- 创建 GitHub Release ---
       - name: Create Release
@@ -36,7 +52,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref_name }}
-          release_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body: ${{ steps.tag_message.outputs.message }}
           draft: false
           prerelease: false
 
@@ -45,7 +62,7 @@ jobs:
         run: |
           mkdir plugin-release
           cp main.js manifest.json plugin-release/
-          cp styles.css plugin-release/ || true # 复制 styles.css (如果存在)
+          cp styles.css plugin-release/ || true
 
       - name: Create ZIP archive
         run: |
