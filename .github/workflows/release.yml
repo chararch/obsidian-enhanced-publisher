@@ -1,8 +1,9 @@
 name: Release Obsidian Plugin
 
 on:
-  release:
-    types: [published] # 在Release被发布时触发
+  push:
+    tags:
+      - '*' # 在任何标签被推送时触发
 
 # 显式声明工作流需要的权限
 permissions:
@@ -27,7 +28,19 @@ jobs:
       - name: Build plugin
         run: npm run build # 运行构建命令，生成 main.js
 
-      # --- 打包并上传 ZIP 文件 (保持不变) ---
+      # --- 创建 GitHub Release ---
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+
+      # --- 打包并上传 ZIP 文件 ---
       - name: Prepare Release Files for ZIP
         run: |
           mkdir plugin-release
@@ -40,12 +53,12 @@ jobs:
           zip ../obsidian-enhanced-publisher-${{ github.ref_name }}.zip ./*
 
       - name: Upload Release ZIP Asset
-        id: upload-zip-asset # 给这个步骤一个ID，方便调试
+        id: upload-zip-asset
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ github.event.release.upload_url }}
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./obsidian-enhanced-publisher-${{ github.ref_name }}.zip
           asset_name: obsidian-enhanced-publisher-${{ github.ref_name }}.zip
           asset_content_type: application/zip
@@ -57,9 +70,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./main.js       # 指定 main.js 的路径
-          asset_name: main.js         # 指定上传后的文件名
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./main.js
+          asset_name: main.js
           asset_content_type: application/javascript
 
       - name: Upload manifest.json Asset
@@ -68,20 +81,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./manifest.json # 指定 manifest.json 的路径
-          asset_name: manifest.json   # 指定上传后的文件名
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./manifest.json
+          asset_name: manifest.json
           asset_content_type: application/json
 
       - name: Upload styles.css Asset (if exists)
         id: upload-styles-asset
-        # 只有当 styles.css 文件存在时才运行此步骤
         if: ${{ hashFiles('styles.css') != '' }}
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./styles.css    # 指定 styles.css 的路径
-          asset_name: styles.css      # 指定上传后的文件名
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./styles.css
+          asset_name: styles.css
           asset_content_type: text/css
