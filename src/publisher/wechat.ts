@@ -3,6 +3,7 @@ import EnhancedPublisherPlugin from '../main';
 import { getOrCreateMetadata, isImageUploaded, addImageMetadata, updateMetadata, updateDraftMetadata } from '../types/metadata';
 import { App } from 'obsidian';
 import { Logger } from '../utils/logger';
+import { cleanObsidianUIElements } from '../utils/html-cleaner';
 
 // 微信素材类型接口
 interface WechatMaterial {
@@ -323,6 +324,30 @@ export class WechatPublisher {
         }
     }
 
+    // 清理HTML内容，移除Obsidian特有的UI元素
+    private cleanHtmlForWechat(htmlContent: string): string {
+        try {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlContent, 'text/html');
+            const tempDiv = document.createElement('div');
+
+            // 将解析后的内容转移到临时div
+            Array.from(doc.body.childNodes).forEach(node => {
+                tempDiv.appendChild(document.importNode(node, true));
+            });
+
+            // 使用新的 DOM 清理函数
+            cleanObsidianUIElements(tempDiv);
+
+            // 使用XMLSerializer安全地获取HTML内容
+            const serializer = new XMLSerializer();
+            return serializer.serializeToString(tempDiv);
+        } catch (error) {
+            this.logger.error('清理HTML内容时出错:', error);
+            return htmlContent;
+        }
+    }
+
     // 发布到微信公众号
     async publishToWechat(
         title: string,
@@ -332,7 +357,10 @@ export class WechatPublisher {
     ): Promise<boolean> {
         try {
             // 处理文档中的图片
-            const processedContent = await this.processDocumentImages(content, file);
+            let processedContent = await this.processDocumentImages(content, file);
+
+            // 清理HTML内容，移除Obsidian UI元素
+            processedContent = this.cleanHtmlForWechat(processedContent);
 
             // 获取元数据
             const metadata = await getOrCreateMetadata(this.app.vault, file);

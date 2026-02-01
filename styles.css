@@ -48,10 +48,47 @@
     cursor: pointer;
 }
 
+/* 主题控件容器样式 */
+.html-preview-theme-control {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* 主题控件标签样式 */
+.theme-control-label {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+/* 主题控件选择器样式 */
+.theme-control-select {
+    padding: 4px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s ease;
+}
+
+.theme-control-select:hover {
+    border-color: var(--interactive-accent);
+}
+
+.theme-control-select:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+    box-shadow: 0 0 0 2px var(--interactive-accent-hover);
+}
+
 /* HTML预览内容容器样式 */
 .html-preview-content {
-    height: calc(100% - 50px); /* 减去工具栏高度 */
-    overflow: hidden; /* 防止出现双滚动条 */
+    height: calc(100% - 50px);
+    /* 减去工具栏高度 */
+    overflow: hidden;
+    /* 防止出现双滚动条 */
 }
 
 /* HTML预览iframe样式 */
@@ -106,7 +143,8 @@
 /* 微信公众号设置输入框样式 */
 .setting-item.wechat-setting-appid input,
 .setting-item.wechat-setting-appsecret input {
-    width: 300px; /* 增加输入框宽度 */
+    width: 300px;
+    /* 增加输入框宽度 */
 }
 
 /* 封面图选择样式 */
@@ -209,21 +247,25 @@
 .material-grid {
     flex: 1;
     overflow-y: auto;
-    overflow-x: hidden; /* 防止水平滚动条 */
+    overflow-x: hidden;
+    /* 防止水平滚动条 */
     min-height: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); /* 响应式布局 */
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    /* 响应式布局 */
     gap: 10px;
     padding: 0;
     margin: 0;
     align-content: start;
-    width: 100%; /* 确保宽度100% */
+    width: 100%;
+    /* 确保宽度100% */
 }
 
 /* 在较大屏幕上显示5列 */
 @media (min-width: 800px) {
     .material-grid {
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); /* 响应式布局 */
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        /* 响应式布局 */
     }
 }
 
@@ -260,7 +302,8 @@
 }
 
 .material-item {
-    width: 160px !important; /* 固定宽度 */
+    width: 160px !important;
+    /* 固定宽度 */
     margin: 0 !important;
     padding: 8px !important;
     box-sizing: border-box !important;
@@ -276,7 +319,8 @@
 }
 
 .material-item img {
-    width: 144px !important; /* 160px - 2*8px padding */
+    width: 144px !important;
+    /* 160px - 2*8px padding */
     height: 100px !important;
     object-fit: cover;
     border-radius: 4px;
@@ -341,7 +385,8 @@
 }
 
 .modal-close-button {
-    position: absolute !important; /* 改为absolute而不是fixed */
+    position: absolute !important;
+    /* 改为absolute而不是fixed */
     right: 12px !important;
     top: 12px !important;
     z-index: 1000 !important;
@@ -405,11 +450,16 @@
 /* 封面图模态框素材项名称 */
 .material-item-name {
     font-size: 12px;
-    white-space: nowrap; /* 防止换行 */
-    overflow: hidden; /* 隐藏溢出内容 */
-    text-overflow: ellipsis; /* 用省略号表示溢出内容 */
-    max-width: 100%; /* 确保不超过容器宽度 */
-    display: block; /* 块级元素确保占据整行 */
+    white-space: nowrap;
+    /* 防止换行 */
+    overflow: hidden;
+    /* 隐藏溢出内容 */
+    text-overflow: ellipsis;
+    /* 用省略号表示溢出内容 */
+    max-width: 100%;
+    /* 确保不超过容器宽度 */
+    display: block;
+    /* 块级元素确保占据整行 */
 }
 
 /* 底部按钮样式增强 */
