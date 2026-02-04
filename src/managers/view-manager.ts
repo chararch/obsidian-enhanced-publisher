@@ -382,13 +382,6 @@ export class ViewManager {
                                     const docPath = this.assetManager.getDocumentPathFromImagePath(newPath);
                                     if (docPath) {
                                         this.refreshDocumentView(docPath, true);
-                                    } else {
-                                        // 降级策略
-                                        const folderPath = image.path.substring(0, image.path.lastIndexOf('/'));
-                                        if (folderPath.endsWith(CONSTANTS.DEFAULT_ASSETS_SUFFIX)) {
-                                            const docPath = folderPath.substring(0, folderPath.lastIndexOf(CONSTANTS.DEFAULT_ASSETS_SUFFIX)) + '.md';
-                                            this.refreshDocumentView(docPath, true);
-                                        }
                                     }
                                 } catch (error) {
                                     console.error('重命名图片失败:', error);

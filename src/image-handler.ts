@@ -129,8 +129,18 @@ function refreshAfterImageSave(
             if (docFile instanceof TFile) {
                 folderPath = getPathFromPattern(plugin.settings.imageAttachmentLocation, docFile);
             } else {
-                // Fallback
-                folderPath = docPath.replace(/\.md$/, CONSTANTS.DEFAULT_ASSETS_SUFFIX);
+                // Fallback: use default suffix in same folder
+                const lastSlashIndex = docPath.lastIndexOf('/');
+                const filename = lastSlashIndex >= 0 ? docPath.substring(lastSlashIndex + 1) : docPath;
+                const dotIndex = filename.lastIndexOf('.');
+                if (dotIndex > 0) {
+                    const basename = filename.substring(0, dotIndex);
+                    const parentPath = lastSlashIndex >= 0 ? docPath.substring(0, lastSlashIndex) : '';
+                    const relativeFolder = `${basename}${CONSTANTS.DEFAULT_ASSETS_SUFFIX}`;
+                    folderPath = parentPath ? `${parentPath}/${relativeFolder}` : relativeFolder;
+                } else {
+                    folderPath = `${docPath}${CONSTANTS.DEFAULT_ASSETS_SUFFIX}`;
+                }
             }
 
             // 使用viewManager刷新视图

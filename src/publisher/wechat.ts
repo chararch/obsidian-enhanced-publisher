@@ -4,6 +4,7 @@ import { getOrCreateMetadata, isImageUploaded, addImageMetadata, updateMetadata,
 import { App } from 'obsidian';
 import { Logger } from '../utils/logger';
 import { cleanObsidianUIElements } from '../utils/html-cleaner';
+import { getPathFromPattern } from '../utils/path-utils';
 
 // 微信素材类型接口
 interface WechatMaterial {
@@ -34,6 +35,10 @@ export class WechatPublisher {
         this.app = app;
         this.plugin = plugin;
         this.logger = Logger.getInstance(app);
+    }
+
+    private getAssetFolderPath(file: TFile): string {
+        return getPathFromPattern(this.plugin.settings.imageAttachmentLocation, file);
     }
 
     // 获取微信素材库列表（支持分页）
@@ -114,56 +119,88 @@ export class WechatPublisher {
 
     // 获取访问令牌（带缓存）
     async getAccessToken(forceRefresh: boolean = false): Promise<string> {
-        try {
-            // 检查缓存
-            const cacheData = localStorage.getItem('wechat_token_cache');
-            const cache: TokenCache = cacheData ? JSON.parse(cacheData) : null;
+        // 1. 检查缓存
+        if (!forceRefresh) {
+            try {
+                const cacheData = localStorage.getItem('wechat_token_cache');
+                const cache: TokenCache = cacheData ? JSON.parse(cacheData) : null;
 
-            // 如果缓存存在且未过期（有效期为110分钟，微信令牌有效期为2小时）
-            // 且不强制刷新
-            if (!forceRefresh && cache && Date.now() < cache.expireTime) {
-                this.logger.debug("使用缓存的访问令牌");
-                return cache.token;
-            }
-
-            // 重新获取访问令牌
-            // 使用 stable_token 接口 (POST)
-            const tokenResponse = await requestUrl({
-                url: 'https://api.weixin.qq.com/cgi-bin/stable_token',
-                method: 'POST',
-                body: JSON.stringify({
-                    grant_type: 'client_credential',
-                    appid: this.plugin.settings.wechatAppId,
-                    secret: this.plugin.settings.wechatAppSecret,
-                    force_refresh: forceRefresh
-                }),
-                headers: {
-                    'Content-Type': 'application/json'
+                // 如果缓存存在且未过期（有效期为110分钟，微信令牌有效期为2小时）
+                if (cache && Date.now() < cache.expireTime) {
+                    this.logger.debug("使用缓存的访问令牌");
+                    return cache.token;
                 }
-            });
-
-            if (!tokenResponse.json.access_token) {
-                this.logger.error("获取微信访问令牌失败: ", tokenResponse.json);
-                new Notice('获取微信访问令牌失败');
-                return '';
+            } catch (e) {
+                this.logger.error('读取令牌缓存失败:', e);
             }
-
-            const accessToken = tokenResponse.json.access_token;
-
-            // 更新缓存（110分钟 = 6600000毫秒）
-            const expireTime = Date.now() + 6600000;
-            const newCache: TokenCache = {
-                token: accessToken,
-                expireTime: expireTime
-            };
-            localStorage.setItem('wechat_token_cache', JSON.stringify(newCache));
-
-            return accessToken;
-        } catch (error) {
-            this.logger.error('获取微信访问令牌时出错:', error);
-            new Notice('获取微信访问令牌时出错');
-            return '';
         }
+
+        // 2. 重新获取访问令牌 (带重试机制)
+        const maxRetries = 3;
+        const initialDelay = 1000; // 1 second
+
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                if (attempt > 0) {
+                    const delay = initialDelay * Math.pow(2, attempt - 1);
+                    this.logger.warn(`获取令牌尝试第 ${attempt} 次重试，正在等待 ${delay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+
+                this.logger.debug(`开始获取微信访问令牌${forceRefresh ? ' (强制刷新)' : ''}`);
+
+                // 使用 stable_token 接口 (POST)
+                const tokenResponse = await requestUrl({
+                    url: 'https://api.weixin.qq.com/cgi-bin/stable_token',
+                    method: 'POST',
+                    body: JSON.stringify({
+                        grant_type: 'client_credential',
+                        appid: this.plugin.settings.wechatAppId,
+                        secret: this.plugin.settings.wechatAppSecret,
+                        force_refresh: forceRefresh
+                    }),
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!tokenResponse.json.access_token) {
+                    this.logger.error("获取微信访问令牌业务失败: ", tokenResponse.json);
+                    // 业务失败通常不需要重试，除非是特定错误
+                    if (attempt === maxRetries) {
+                        new Notice(`获取微信访问令牌失败: ${tokenResponse.json.errmsg || '未知错误'}`);
+                        return '';
+                    }
+                    continue; // 尝试重试
+                }
+
+                const accessToken = tokenResponse.json.access_token;
+
+                // 更新缓存（110分钟 = 6600000毫秒）
+                const expireTime = Date.now() + 6600000;
+                const newCache: TokenCache = {
+                    token: accessToken,
+                    expireTime: expireTime
+                };
+                localStorage.setItem('wechat_token_cache', JSON.stringify(newCache));
+
+                return accessToken;
+            } catch (error: any) {
+                this.logger.error(`获取微信访问令牌网络错误 (尝试 ${attempt + 1}/${maxRetries + 1}):`, error);
+
+                if (attempt === maxRetries) {
+                    const errorMsg = error.message || String(error);
+                    if (errorMsg.includes('ERR_CONNECTION_CLOSED') || errorMsg.includes('net::')) {
+                        new Notice('获取微信令牌失败: 网络连接被关闭，请检查是否启用了代理或网络环境不稳定');
+                    } else {
+                        new Notice('获取微信访问令牌时出错，请检查网络设置');
+                    }
+                    return '';
+                }
+                // 继续下一次重试
+            }
+        }
+        return '';
     }
 
     // 上传单个图片到微信公众号并获取URL
@@ -223,7 +260,8 @@ export class WechatPublisher {
     // 处理文档中的图片
     async processDocumentImages(
         content: string,
-        file: TFile
+        file: TFile,
+        assetFolderPath?: string
     ): Promise<string> {
         try {
             if (!file.parent) {
@@ -231,7 +269,8 @@ export class WechatPublisher {
             }
 
             // 获取或创建元数据
-            const metadata = await getOrCreateMetadata(this.app.vault, file);
+            const resolvedAssetFolderPath = assetFolderPath || this.getAssetFolderPath(file);
+            const metadata = await getOrCreateMetadata(this.app.vault, file, resolvedAssetFolderPath);
 
             // 创建临时DOM解析HTML内容
             const tempDiv = document.createElement('div');
@@ -252,10 +291,10 @@ export class WechatPublisher {
             // 处理每个图片
             for (const img of Array.from(images)) {
                 const src = img.getAttribute('src');
-                if (!src || src.startsWith('http')) continue;  // 跳过已经是http链接的图片
+                if (!src) continue;
 
-                // 处理图片并获取微信URL
-                const imageUrl = await this.processImage(src, file, metadata);
+                // 处理图片并获取微信URL (现在也处理 http 图片以供自动上传)
+                const imageUrl = await this.processImage(src, file, metadata, resolvedAssetFolderPath);
                 if (!imageUrl) continue;
 
                 // 更新图片src为微信URL
@@ -275,9 +314,67 @@ export class WechatPublisher {
     async processImage(
         imagePath: string,
         file: TFile,
-        metadata: any
+        metadata: any,
+        assetFolderPath: string
     ): Promise<string | null> {
         try {
+            // 1. 处理 Base64 Data URL (通常是公式转换生成的)
+            if (imagePath.startsWith('data:image/')) {
+                const match = imagePath.match(/^data:image\/(\w+);base64,(.+)$/);
+                if (!match) return null;
+
+                const ext = match[1];
+                const base64Data = match[2];
+                const fileName = `formula_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+
+                // 将 base64 转换为 ArrayBuffer
+                const binaryString = window.atob(base64Data);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                const arrayBuffer = bytes.buffer;
+
+                this.logger.debug(`上传生成的图片: ${fileName}`);
+                const uploadResult = await this.uploadImageAndGetUrl(arrayBuffer, fileName);
+                return uploadResult ? uploadResult.url : null;
+            }
+
+            // 2. 处理网络图片 (http/https)
+            if (imagePath.startsWith('http')) {
+                // 检查缓存
+                let imageMetadata = isImageUploaded(metadata, imagePath);
+                if (!imageMetadata) {
+                    this.logger.debug(`下载并上传网络图片: ${imagePath}`);
+                    try {
+                        const response = await requestUrl({ url: imagePath });
+                        if (response.status !== 200) {
+                            this.logger.error(`下载图片失败: ${imagePath}, status: ${response.status}`);
+                            return null;
+                        }
+
+                        const fileName = imagePath.split('/').pop()?.split('?')[0] || `web_image_${Date.now()}.png`;
+                        const uploadResult = await this.uploadImageAndGetUrl(response.arrayBuffer, fileName);
+
+                        if (!uploadResult) return null;
+
+                        imageMetadata = {
+                            fileName: imagePath, // 使用完整URL作为Key来缓存
+                            url: uploadResult.url,
+                            media_id: uploadResult.media_id,
+                            uploadTime: Date.now()
+                        };
+                        addImageMetadata(metadata, imagePath, imageMetadata);
+                        await updateMetadata(this.app.vault, file, metadata, assetFolderPath);
+                    } catch (e) {
+                        this.logger.error(`处理网络图片异常: ${imagePath}`, e);
+                        return null;
+                    }
+                }
+                return imageMetadata.url;
+            }
+
+            // 3. 处理常规文件路径
             // 从路径中获取文件名
             let fileName = imagePath.split('/').pop();
             if (!fileName) return null;
@@ -314,7 +411,7 @@ export class WechatPublisher {
                     uploadTime: Date.now()
                 };
                 addImageMetadata(metadata, fileName, imageMetadata);
-                await updateMetadata(this.app.vault, file, metadata);
+                await updateMetadata(this.app.vault, file, metadata, assetFolderPath);
             }
 
             return imageMetadata.url;
@@ -357,13 +454,14 @@ export class WechatPublisher {
     ): Promise<boolean> {
         try {
             // 处理文档中的图片
-            let processedContent = await this.processDocumentImages(content, file);
+            const assetFolderPath = this.getAssetFolderPath(file);
+            let processedContent = await this.processDocumentImages(content, file, assetFolderPath);
 
             // 清理HTML内容，移除Obsidian UI元素
             processedContent = this.cleanHtmlForWechat(processedContent);
 
             // 获取元数据
-            const metadata = await getOrCreateMetadata(this.app.vault, file);
+            const metadata = await getOrCreateMetadata(this.app.vault, file, assetFolderPath);
 
             // 准备更新数据
             let updateData = {
@@ -436,7 +534,7 @@ export class WechatPublisher {
                 }
 
                 updateDraftMetadata(metadata, updateData);
-                await updateMetadata(this.app.vault, file, metadata);
+                await updateMetadata(this.app.vault, file, metadata, assetFolderPath);
 
                 new Notice('成功发布到微信公众号草稿箱');
                 return true;
@@ -453,20 +551,45 @@ export class WechatPublisher {
 
     // 辅助方法：执行带重试的请求
     private async requestWithTokenRetry(requestFn: (token: string) => Promise<any>): Promise<any> {
-        const accessToken = await this.getAccessToken();
-        if (!accessToken) throw new Error("无法获取Access Token");
+        const maxRetries = 2;
+        const initialDelay = 1000;
 
-        let response = await requestFn(accessToken);
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                if (attempt > 0) {
+                    const delay = initialDelay * Math.pow(2, attempt - 1);
+                    this.logger.warn(`请求尝试第 ${attempt} 次重试，正在等待 ${delay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
 
-        if (response.json && [40001, 40014, 42001].includes(response.json.errcode)) {
-            this.logger.warn(`Token失效 (${response.json.errcode})，尝试刷新并重试...`);
-            const newToken = await this.getAccessToken(true);
-            if (newToken) {
-                response = await requestFn(newToken);
+                const accessToken = await this.getAccessToken();
+                if (!accessToken) throw new Error("无法获取Access Token");
+
+                let response = await requestFn(accessToken);
+
+                // 处理 Token 失效
+                if (response.json && [40001, 40014, 42001].includes(response.json.errcode)) {
+                    this.logger.warn(`Token失效 (${response.json.errcode})，尝试刷新并重试...`);
+                    const newToken = await this.getAccessToken(true);
+                    if (newToken) {
+                        response = await requestFn(newToken);
+                    }
+                }
+
+                return response;
+            } catch (error: any) {
+                const errorMsg = error.message || String(error);
+                const isNetworkError = errorMsg.includes('ERR_CONNECTION_CLOSED') || errorMsg.includes('net::');
+
+                if (isNetworkError && attempt < maxRetries) {
+                    this.logger.error(`微信接口网络错误 (尝试 ${attempt + 1}/${maxRetries + 1}):`, error);
+                    continue; // 重试
+                }
+
+                this.logger.error(`微信接口请求失败:`, error);
+                throw error;
             }
         }
-
-        return response;
     }
 
     // 统一处理微信API错误

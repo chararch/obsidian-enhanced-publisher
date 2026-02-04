@@ -49,6 +49,31 @@ describe('WechatPublisher', () => {
                 url: 'https://api.weixin.qq.com/cgi-bin/stable_token'
             }));
         });
+
+        test('should retry on network error and eventually succeed', async () => {
+            (requestUrl as jest.Mock)
+                .mockRejectedValueOnce(new Error('net::ERR_CONNECTION_CLOSED'))
+                .mockRejectedValueOnce(new Error('net::ERR_CONNECTION_CLOSED'))
+                .mockResolvedValueOnce({
+                    json: {
+                        access_token: 'retry-token',
+                        expires_in: 7200
+                    }
+                });
+
+            const result = await publisher.getAccessToken();
+            expect(result).toBe('retry-token');
+            expect(requestUrl).toHaveBeenCalledTimes(3);
+        });
+
+        test('should return empty string after max retries fail', async () => {
+            (requestUrl as jest.Mock).mockRejectedValue(new Error('net::ERR_CONNECTION_CLOSED'));
+
+            const result = await publisher.getAccessToken();
+            expect(result).toBe('');
+            // 1 initial + 3 retries = 4 times
+            expect(requestUrl).toHaveBeenCalledTimes(4);
+        }, 10000); // Increased timeout for retries
     });
 
     describe('Retry Logic (requestWithTokenRetry)', () => {
@@ -94,6 +119,21 @@ describe('WechatPublisher', () => {
             expect(result.items).toEqual([]);
             // Should have called handleWechatError (which logs an error)
             // We can check if Notice was instantiated if we want, but logging is safer to check via spy if we had one
+        });
+
+        test('should retry on network error in requestWithTokenRetry', async () => {
+            jest.spyOn(publisher, 'getAccessToken').mockResolvedValue('valid-token');
+
+            (requestUrl as jest.Mock)
+                .mockRejectedValueOnce(new Error('net::ERR_CONNECTION_CLOSED'))
+                .mockResolvedValueOnce({
+                    json: { errcode: 0, item: [], total_count: 10 }
+                });
+
+            const result = await publisher.getWechatMaterials();
+
+            expect(result.totalCount).toBe(10);
+            expect(requestUrl).toHaveBeenCalledTimes(2);
         });
     });
 });

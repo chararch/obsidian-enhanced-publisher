@@ -1,5 +1,5 @@
 import { App, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
-import { WechatThemeStyle, WechatThemeColor, THEME_STYLE_NAMES, THEME_COLOR_NAMES } from './types/wechat-theme';
+import { WechatThemeStyle, THEME_STYLE_NAMES } from './types/wechat-theme';
 
 // 定义插件设置接口
 export interface EnhancedPublisherSettings {
@@ -11,7 +11,6 @@ export interface EnhancedPublisherSettings {
 	debugMode: boolean;
 	enableWechatStyle: boolean; // 启用微信样式渲染
 	wechatThemeStyle: WechatThemeStyle; // 微信主题样式
-	wechatThemeColor: WechatThemeColor; // 微信主题颜色
 }
 
 // 定义插件接口以避免循环导入
@@ -31,7 +30,6 @@ export const DEFAULT_SETTINGS: EnhancedPublisherSettings = {
 	debugMode: false,
 	enableWechatStyle: true, // 默认启用微信样式
 	wechatThemeStyle: WechatThemeStyle.MODERN_MINIMAL, // 默认现代简约主题
-	wechatThemeColor: WechatThemeColor.CLASSIC_BLUE // 默认经典蓝
 }
 
 // 设置选项卡
@@ -143,37 +141,21 @@ export class EnhancedPublisherSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('主题样式')
+			.setName('默认主题')
 			.setDesc('选择微信公众号文章的样式风格')
-			.addDropdown(dropdown => dropdown
-				.addOption(WechatThemeStyle.MODERN_MINIMAL, THEME_STYLE_NAMES[WechatThemeStyle.MODERN_MINIMAL])
-				.addOption(WechatThemeStyle.TECH_FUTURE, THEME_STYLE_NAMES[WechatThemeStyle.TECH_FUTURE])
-				.addOption(WechatThemeStyle.WARM_ORANGE, THEME_STYLE_NAMES[WechatThemeStyle.WARM_ORANGE])
-				.addOption(WechatThemeStyle.FRESH_GREEN, THEME_STYLE_NAMES[WechatThemeStyle.FRESH_GREEN])
-				.addOption(WechatThemeStyle.ELEGANT_VIOLET, THEME_STYLE_NAMES[WechatThemeStyle.ELEGANT_VIOLET])
-				.addOption(WechatThemeStyle.CHINESE_STYLE, THEME_STYLE_NAMES[WechatThemeStyle.CHINESE_STYLE])
-				.setValue(this.plugin.settings.wechatThemeStyle)
-				.onChange(async (value) => {
-					this.plugin.settings.wechatThemeStyle = value as WechatThemeStyle;
-					await this.plugin.saveSettings();
-					new Notice(`主题样式已切换为：${THEME_STYLE_NAMES[value as WechatThemeStyle]}`);
-				}));
-
-		new Setting(containerEl)
-			.setName('主题颜色')
-			.setDesc('选择微信公众号文章的主题色')
 			.addDropdown(dropdown => {
-				// 添加所有颜色选项
-				Object.values(WechatThemeColor).forEach(color => {
-					dropdown.addOption(color, THEME_COLOR_NAMES[color]);
+				Object.values(WechatThemeStyle).forEach(style => {
+					dropdown.addOption(style, THEME_STYLE_NAMES[style]);
 				});
 				return dropdown
-					.setValue(this.plugin.settings.wechatThemeColor)
+					.setValue(this.plugin.settings.wechatThemeStyle)
 					.onChange(async (value) => {
-						this.plugin.settings.wechatThemeColor = value as WechatThemeColor;
+						this.plugin.settings.wechatThemeStyle = value as WechatThemeStyle;
 						await this.plugin.saveSettings();
-						new Notice(`主题颜色已切换为：${THEME_COLOR_NAMES[value as WechatThemeColor]}`);
+						new Notice(`主题样式已切换为：${THEME_STYLE_NAMES[value as WechatThemeStyle]}`);
 					});
 			});
+
+
 	}
 } 

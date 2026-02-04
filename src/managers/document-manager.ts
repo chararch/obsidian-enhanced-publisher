@@ -24,9 +24,9 @@ export class DocumentManager {
      */
     public async handleDocumentRename(file: TFile, oldPath: string): Promise<boolean> {
         try {
-            // 检查重命名前的资源文件夹 - 从旧路径映射
-            const oldAssetFolder = oldPath.replace(/\.md$/, CONSTANTS.DEFAULT_ASSETS_SUFFIX);
-            const newAssetFolder = file.path.replace(/\.md$/, CONSTANTS.DEFAULT_ASSETS_SUFFIX);
+            // 计算旧/新资源文件夹路径（基于当前设置）
+            const oldAssetFolder = this.assetManager.getExpectedAssetFolderPathForDocPath(oldPath);
+            const newAssetFolder = this.assetManager.getExpectedAssetFolderPathForDocPath(file.path);
 
             // 检查目标文档是否已存在（不同于当前文档）
             const targetDoc = this.app.vault.getAbstractFileByPath(file.path);
@@ -41,11 +41,13 @@ export class DocumentManager {
             }
 
             // 更新文档中的图片引用路径
-            const oldFolderName = oldAssetFolder.split('/').pop();
-            const newFolderName = newAssetFolder.split('/').pop();
+            if (oldAssetFolder && newAssetFolder) {
+                const oldFolderName = oldAssetFolder.split('/').pop();
+                const newFolderName = newAssetFolder.split('/').pop();
 
-            if (oldFolderName && newFolderName && oldFolderName !== newFolderName) {
-                await this.assetManager.updateImageReferences(file.path, oldAssetFolder, newAssetFolder);
+                if (oldFolderName && newFolderName && oldFolderName !== newFolderName) {
+                    await this.assetManager.updateImageReferences(file.path, oldAssetFolder, newAssetFolder);
+                }
             }
 
             return true;

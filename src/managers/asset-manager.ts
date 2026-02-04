@@ -56,6 +56,24 @@ export class AssetManager {
     }
 
     /**
+     * 根据文档路径推导资源文件夹路径（不依赖文件是否存在）
+     */
+    public getExpectedAssetFolderPathForDocPath(docPath: string): string | null {
+        const mockFile = this.buildMockFileFromDocPath(docPath);
+        if (!mockFile) return null;
+        const pattern = this.settings.imageAttachmentLocation || `${mockFile.basename}${CONSTANTS.DEFAULT_ASSETS_SUFFIX}`;
+        return getPathFromPattern(pattern, mockFile);
+    }
+
+    /**
+     * 根据TFile计算资源文件夹路径
+     */
+    public getAssetFolderPathForFile(file: TFile): string {
+        const pattern = this.settings.imageAttachmentLocation || `${file.basename}${CONSTANTS.DEFAULT_ASSETS_SUFFIX}`;
+        return getPathFromPattern(pattern, file);
+    }
+
+    /**
      * 获取文档对应的资源文件夹
      * @param docPath 文档路径
      * @returns 资源文件夹路径，如果不存在则返回null
@@ -132,17 +150,8 @@ export class AssetManager {
             // 实际上，重命名事件发生时，我们无法轻易获取"旧的文件对象"。
             // 但我们可以根据 oldDocPath 推断出旧的文件名和旧的父目录。
 
-            const oldPathBase = oldDocPath.substring(oldDocPath.lastIndexOf('/') + 1);
-            const oldBasename = oldPathBase.substring(0, oldPathBase.lastIndexOf('.'));
-            // 旧的父目录路径
-            const oldParentPath = oldDocPath.substring(0, oldDocPath.lastIndexOf('/')) || '/';
-            // 如果 oldDocPath 没有斜杠且不为空，则父目录可能是空字符串（代表根目录），但在 getPathFromPattern 逻辑中我们通常使用 / 代表根？
-            // 让我们模拟一个简单的对象传给 getPathFromPattern
-
-            const mockOldFile = {
-                basename: oldBasename,
-                parent: { path: oldParentPath === '/' ? '/' : oldParentPath }
-            } as any; // 强制转换，只要满足接口即可
+            const mockOldFile = this.buildMockFileFromDocPath(oldDocPath);
+            if (!mockOldFile) return false;
 
             // 计算旧的文件夹路径
             const oldFolderPath = getPathFromPattern(this.settings.imageAttachmentLocation, mockOldFile);
@@ -195,6 +204,33 @@ export class AssetManager {
             console.error("重命名资源文件夹异常:", error);
             return false;
         }
+    }
+
+    /**
+     * 从资源文件夹路径获取文档路径
+     * @param folderPath 资源文件夹路径
+     * @returns 对应的文档路径，如果无法确定则返回null
+     */
+    public getDocumentPathFromAssetFolder(folderPath: string): string | null {
+        for (const [docPath, cachedFolderPath] of this.cachedAssetFolders.entries()) {
+            if (cachedFolderPath === folderPath) {
+                return docPath;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 判断路径是否为资源文件夹
+     * @param path 文件夹路径
+     */
+    public isAssetFolder(path: string): boolean {
+        for (const folderPath of this.cachedAssetFolders.values()) {
+            if (folderPath === path) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -294,5 +330,23 @@ export class AssetManager {
             }
         }
         return false;
+    }
+
+    /**
+     * 从文档路径构造最小化的 TFile-like 对象
+     */
+    private buildMockFileFromDocPath(docPath: string): { basename: string; parent: { path: string } } | null {
+        const lastSlashIndex = docPath.lastIndexOf('/');
+        const filename = lastSlashIndex >= 0 ? docPath.substring(lastSlashIndex + 1) : docPath;
+        const dotIndex = filename.lastIndexOf('.');
+        if (dotIndex <= 0) return null;
+
+        const basename = filename.substring(0, dotIndex);
+        const parentPath = lastSlashIndex >= 0 ? docPath.substring(0, lastSlashIndex) : '/';
+
+        return {
+            basename,
+            parent: { path: parentPath || '/' }
+        };
     }
 }

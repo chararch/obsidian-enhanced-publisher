@@ -29,14 +29,18 @@ export interface DocumentMetadata {
 }
 
 // 获取或创建文档的元数据文件
-export async function getOrCreateMetadata(vault: Vault, file: TFile): Promise<DocumentMetadata> {
+export async function getOrCreateMetadata(
+    vault: Vault,
+    file: TFile,
+    assetFolderPath: string
+): Promise<DocumentMetadata> {
     if (!file.parent) {
         throw new Error('文件必须在文件夹中');
     }
 
     // 获取文档对应的资源文件夹
-    const assetsFolder = `${file.parent.path}/${file.basename}__assets`;
-    const metadataPath = `${assetsFolder}/metadata.json`;
+    const assetsFolder = assetFolderPath;
+    const metadataPath = `${assetFolderPath}/metadata.json`;
 
     try {
         // 检查元数据文件是否存在
@@ -76,11 +80,16 @@ export async function getOrCreateMetadata(vault: Vault, file: TFile): Promise<Do
 }
 
 // 更新文档的元数据
-export async function updateMetadata(vault: Vault, file: TFile, metadata: DocumentMetadata): Promise<void> {
+export async function updateMetadata(
+    vault: Vault,
+    file: TFile,
+    metadata: DocumentMetadata,
+    assetFolderPath: string
+): Promise<void> {
     if (!file.parent) {
         throw new Error('文件必须在文件夹中');
     }
-    const metadataPath = `${file.parent.path}/${file.basename}__assets/metadata.json`;
+    const metadataPath = `${assetFolderPath}/metadata.json`;
     await vault.adapter.write(metadataPath, JSON.stringify(metadata, null, 2));
 }
 

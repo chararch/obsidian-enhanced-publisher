@@ -1,12 +1,17 @@
 import { TFile } from 'obsidian';
 
+export type FilePathLike = {
+    basename: string;
+    parent: { path: string } | null;
+};
+
 /**
  * 根据模式和当前文件生成路径
  * @param pattern 路径模式，支持 ${filename} 占位符
  * @param file 当前文档文件
  * @returns 解析后的路径
  */
-export function getPathFromPattern(pattern: string, file: TFile): string {
+export function getPathFromPattern(pattern: string, file: FilePathLike): string {
     const parentPath = file.parent ? file.parent.path : '/';
     const filename = file.basename;
 

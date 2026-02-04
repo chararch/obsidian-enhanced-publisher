@@ -4,7 +4,7 @@ import { CONSTANTS } from './constants';
 import { log } from 'console';
 import { cleanObsidianUIElements } from './utils/html-cleaner';
 import { applyWechatStyle } from './utils/wechat-styler';
-import { WechatThemeStyle, WechatThemeColor, THEME_STYLE_NAMES, THEME_COLOR_NAMES } from './types/wechat-theme';
+import { WechatThemeStyle, THEME_STYLE_NAMES } from './types/wechat-theme';
 
 // HTML预览视图的类型标识符
 export const HTML_PREVIEW_VIEW_TYPE = 'enhanced-publisher-html-preview';
@@ -226,13 +226,43 @@ export class HtmlPreviewView extends ItemView implements HtmlPreviewCustomProper
 
         copyButton.addEventListener('click', async () => {
             try {
+                new Notice('正在准备内容...', 2000);
+
+                // 为了兼容微信，复制时必须将公式转换为图片（如果启用了微信样式）
+                let contentToCopy = this.htmlContent;
+                if (this.plugin.settings.enableWechatStyle) {
+                    try {
+                        let markdown = '';
+                        const file = this.originalMarkdownPath ?
+                            this.plugin.app.vault.getAbstractFileByPath(this.originalMarkdownPath) : null;
+
+                        if (file instanceof TFile) {
+                            markdown = await this.plugin.app.vault.read(file);
+                        } else {
+                            // 尝试获取当前激活视图的内容
+                            const activeView = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+                            if (activeView && activeView.file?.path === this.originalMarkdownPath) {
+                                markdown = activeView.getViewData();
+                            }
+                        }
+
+                        if (markdown) {
+                            // 重新生成 HTML：公式按微信样式处理，但复制时不转换 Mermaid 为 PNG
+                            contentToCopy = await markdownToHtml.call(this.plugin, markdown, this.originalMarkdownPath || '', true, false);
+                        }
+                    } catch (renderError) {
+                        console.error('复制前重新渲染失败:', renderError);
+                        // 降级使用当前预览内容
+                    }
+                }
+
                 // 创建一个临时容器来存放HTML内容
                 const container = document.createElement('div');
                 container.className = 'offscreen-container';
 
                 // 使用DOMParser安全地解析HTML
                 const parser = new DOMParser();
-                const parsedDoc = parser.parseFromString(this.htmlContent, 'text/html');
+                const parsedDoc = parser.parseFromString(contentToCopy, 'text/html');
 
                 // 使用安全的DOM API复制内容
                 const fragment = document.createDocumentFragment();
@@ -241,13 +271,60 @@ export class HtmlPreviewView extends ItemView implements HtmlPreviewCustomProper
                 });
                 container.appendChild(fragment);
 
+                // 复制专用：移除块级公式前后的空行，避免粘贴时出现多余空行
+                const isEmptyParagraph = (el: Element): boolean => {
+                    if (el.tagName.toLowerCase() !== 'p') return false;
+                    const text = (el.textContent || '').replace(/\u00a0/g, ' ').trim();
+                    const hasOnlyBr = el.children.length > 0 && Array.from(el.children).every(c => c.tagName.toLowerCase() === 'br');
+                    const hasOnlyProseMirrorBreak = el.querySelector('.ProseMirror-trailingBreak') !== null;
+                    if (text.length !== 0) return false;
+                    // 如果包含可见内容（如 img/svg），不要当作空段落
+                    if (el.querySelector('img, svg, video, iframe, canvas')) return false;
+                    // 仅包含 span/leaf/br 的情况，视为空段落
+                    const onlyInlineHolders = Array.from(el.querySelectorAll('*')).every(child => {
+                        const tag = child.tagName.toLowerCase();
+                        return tag === 'span' || tag === 'br';
+                    });
+                    return (el.children.length === 0 || hasOnlyBr || hasOnlyProseMirrorBreak || onlyInlineHolders);
+                };
+
+                const isBlockMath = (el: Element | null): boolean => {
+                    if (!el) return false;
+                    if (el.tagName.toLowerCase() === 'section') {
+                        return el.querySelector('svg[data-formula]') !== null;
+                    }
+                    return el.tagName.toLowerCase() === 'svg' && el.getAttribute('data-formula') !== null;
+                };
+
+                container.querySelectorAll('svg[data-formula]').forEach(svg => {
+                    const section = svg.closest('section');
+                    const blockEl = section || svg;
+                    const prev = blockEl.previousElementSibling;
+                    const next = blockEl.nextElementSibling;
+                    if (prev && isEmptyParagraph(prev)) prev.remove();
+                    if (next && isEmptyParagraph(next)) next.remove();
+                });
+
+                // 兜底：移除容器内所有空段落（包括 ProseMirror trailing break）
+                container.querySelectorAll('p').forEach(p => {
+                    if (isEmptyParagraph(p)) p.remove();
+                });
+
+                // 强兜底：直接移除包含 ProseMirror trailing break 的段落
+                container.querySelectorAll('br.ProseMirror-trailingBreak').forEach(br => {
+                    const p = br.closest('p');
+                    if (p) p.remove();
+                });
+
+
                 document.body.appendChild(container);
 
                 // 处理所有图片
                 const images = container.querySelectorAll('img');
                 for (const img of Array.from(images)) {
                     const src = img.getAttribute('src');
-                    if (src && (src.startsWith('app://') || src.startsWith('data:') === false)) {
+                    // 跳过网络图片（http/https）和已经是base64的图片
+                    if (src && !src.startsWith('http') && !src.startsWith('data:')) {
                         try {
                             let fileName = src.split('/').pop();
                             if (!fileName) continue;
@@ -366,25 +443,28 @@ export class HtmlPreviewView extends ItemView implements HtmlPreviewCustomProper
         const frameDoc = iframe.contentDocument || iframe.contentWindow?.document;
         if (frameDoc) {
             const styles = `
-                    body {
-                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-                        padding: 20px;
-                        margin: 0;
-                        line-height: 1.6;
-                    }
-                    img {
-                        max-width: 100%;
-                    }
-                    pre {
-                        background-color: #f5f5f5;
-                        padding: 10px;
-                        overflow: auto;
-                        border-radius: 3px;
-                    }
-                    code {
-                        font-family: Consolas, Monaco, 'Andale Mono', monospace;
-                    }
-                `;
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                    padding: 20px;
+                    margin: 0;
+                    line-height: 1.6;
+                }
+                img {
+                    max-width: 100%;
+                }
+                .mermaid svg {
+                    overflow: visible;
+                }
+                pre {
+                    background-color: #f5f5f5;
+                    padding: 10px;
+                    overflow: auto;
+                    border-radius: 3px;
+                }
+                code {
+                    font-family: Consolas, Monaco, 'Andale Mono', monospace;
+                }
+            `;
 
             // 提取 MathJax CSS 规则
             let mathjaxCss = '';
@@ -408,7 +488,7 @@ export class HtmlPreviewView extends ItemView implements HtmlPreviewCustomProper
                         // 跳过跨域样式表
                     }
                 }
-                console.log('Extracted MathJax CSS length:', mathjaxCss.length);
+                // debug log removed
             } catch (err) {
                 console.error('Failed to extract MathJax CSS:', err);
             }
@@ -416,17 +496,17 @@ export class HtmlPreviewView extends ItemView implements HtmlPreviewCustomProper
             // 直接构建完整的 HTML 字符串并通过 write 写入
             // 这样可以避免多次 DOM 解析导致的 SVG 丢失问题
             const fullHtml = `
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <style>${styles}</style>
-                        <style id="mathjax-extracted-css">${mathjaxCss}</style>
-                    </head>
-                    <body class="html-preview-iframe-content">
-                        ${this.htmlContent}
-                    </body>
-                    </html>
-                `;
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <style>${styles}</style>
+                    <style id="mathjax-extracted-css">${mathjaxCss}</style>
+                </head>
+                <body class="html-preview-iframe-content">
+                    ${this.htmlContent}
+                </body>
+                </html>
+            `;
 
             frameDoc.open();
             frameDoc.write(fullHtml);
@@ -661,7 +741,9 @@ async function waitForAsyncRender(el: HTMLElement): Promise<void> {
 }
 
 // 将Markdown转换为HTML
-export async function markdownToHtml(this: EnhancedPublisherPlugin, markdown: string, sourcePath: string = ''): Promise<string> {
+export async function markdownToHtml(this: EnhancedPublisherPlugin, markdown: string, sourcePath: string = '', convertMath: boolean = false, convertMermaid: boolean = false): Promise<string> {
+    // debug log removed
+
     // 预处理 Markdown，处理自定义语法
     const processedMarkdown = preprocessMarkdown(markdown);
 
@@ -688,35 +770,7 @@ export async function markdownToHtml(this: EnhancedPublisherPlugin, markdown: st
         // 等待 Obsidian 完成异步渲染（Mermaid、数学公式等）
         await waitForAsyncRender(tempDiv);
 
-        // 调试日志：检查渲染后的 DOM 中是否有特殊元素
-        const svgCount = tempDiv.querySelectorAll('svg').length;
-        const mermaidCount = tempDiv.querySelectorAll('.mermaid').length;
-        const mathCount = tempDiv.querySelectorAll('.math, .math-inline, .math-block, mjx-container').length;
-        const rubyCount = tempDiv.querySelectorAll('ruby').length;
-        const plantumlCount = tempDiv.querySelectorAll('.plantuml').length;
-        const imgCount = tempDiv.querySelectorAll('img').length;
-
-        console.log(`Markdown渲染完成状态检查:`);
-        console.log(`- SVG数量: ${svgCount}`);
-        console.log(`- Mermaid容器数量: ${mermaidCount}`);
-        console.log(`- MathJax/数学公式数量: ${mathCount}`);
-        console.log(`- Ruby注音数量: ${rubyCount}`);
-        console.log(`- PlantUML数量: ${plantumlCount}`);
-        console.log(`- 图片数量: ${imgCount}`);
-
-        // 调试日志：检查代码块类名，看看 PlantUML 是否只是作为普通代码块渲染
-        const preElements = tempDiv.querySelectorAll('pre');
-        if (preElements.length > 0) {
-            console.log('检测到以下代码块(pre)类名:');
-            preElements.forEach((pre, index) => {
-                console.log(`- Pre #${index}: class="${pre.className}"`);
-                // 检查内部 code
-                const code = pre.querySelector('code');
-                if (code) {
-                    console.log(`  - Code: class="${code.className}"`);
-                }
-            });
-        }
+        // debug logs removed
 
     } finally {
         // 无论成功失败，最后都要清理
@@ -778,24 +832,26 @@ export async function markdownToHtml(this: EnhancedPublisherPlugin, markdown: st
     // 9. 在序列化之前直接在 DOM 上清理 Obsidian UI 元素
     cleanObsidianUIElements(tempDiv);
 
+    // 9.1. 防止 Mermaid SVG 文字被裁剪，扩展 viewBox 并设置 overflow
+    const mermaidSvgs = tempDiv.querySelectorAll('.mermaid svg');
+    // debug log removed
+    mermaidSvgs.forEach(svg => {
+        const target = svg as SVGSVGElement;
+        cleanMermaidSvgTextArtifacts(target);
+        expandSvgViewBox(target, 12);
+        fixMermaidSvgClipping(target, 16, 8);
+        expandMermaidForeignObjects(target, 10, 4);
+    });
+    // debug log removed
+
     // 10. 在 cleanup 之后注入 MathJax 样式（确保不被移除）
     const hasMath = tempDiv.querySelector('.math, .math-inline, .math-block, mjx-container');
     if (hasMath) {
-        console.log('MathJax: Detected math elements after cleanup, injecting styles...');
-
         // 调试：检查实际的 MathJax 元素结构
         const mathElements = tempDiv.querySelectorAll('.math, .math-inline, .math-block, mjx-container');
-        console.log(`MathJax: Found ${mathElements.length} math elements`);
         mathElements.forEach((el, idx) => {
-            if (idx < 3) { // 只显示前3个
-                console.log(`  Element ${idx}:`, {
-                    tagName: el.tagName,
-                    className: el.className,
-                    classList: Array.from(el.classList),
-                    innerHTML: el.innerHTML.substring(0, 50),
-                    inlineStyle: (el as HTMLElement).style.cssText
-                });
-            }
+            void idx;
+            void el;
 
             // 直接应用内联样式强制可见（比 CSS 优先级更高）
             const htmlEl = el as HTMLElement;
@@ -821,9 +877,7 @@ export async function markdownToHtml(this: EnhancedPublisherPlugin, markdown: st
                 childEl.style.color = '#000';
             });
 
-            if (idx < 3) {
-                console.log(`  Applied inline styles to element ${idx}`);
-            }
+            // debug log removed
         });
 
         const style = document.createElement('style');
@@ -883,9 +937,8 @@ export async function markdownToHtml(this: EnhancedPublisherPlugin, markdown: st
             }
         `;
         tempDiv.prepend(style);
-        console.log('MathJax: Style tag injected at position 0 of tempDiv');
     } else {
-        console.log('MathJax: No math elements detected after cleanup.');
+        // debug log removed
     }
 
     // 关键修正：在序列化之前，移除为了渲染而添加的 fixed 定位样式
@@ -912,13 +965,7 @@ export async function markdownToHtml(this: EnhancedPublisherPlugin, markdown: st
     // 移除 XHTML 命名空间，因为它会干扰 document.write() 中的 CSS 解析
     const cleanedHtml = htmlContent.replace(/ xmlns="http:\/\/www\.w3\.org\/1999\/xhtml"/g, '');
 
-    // 调试：检查最终 HTML 是否包含 MathJax 样式
-    if (cleanedHtml.includes('data-mathjax-styles')) {
-        console.log('✓ Final HTML contains MathJax styles');
-    } else {
-        console.warn('✗ Final HTML does NOT contain MathJax styles!');
-    }
-    console.log('Final HTML preview (first 500 chars):', cleanedHtml.substring(0, 500));
+    // debug log removed
 
     // 清理 DOM (tempDiv 此时已经空了，且已经从 body 移除)
     if (tempDiv.parentNode) {
@@ -928,10 +975,9 @@ export async function markdownToHtml(this: EnhancedPublisherPlugin, markdown: st
     // 如果启用了微信样式，应用微信样式
     if (this.settings.enableWechatStyle) {
         const themeConfig = {
-            style: this.settings.wechatThemeStyle,
-            color: this.settings.wechatThemeColor
+            style: this.settings.wechatThemeStyle
         };
-        return applyWechatStyle(cleanedHtml, this.app, themeConfig);
+        return applyWechatStyle(cleanedHtml, this.app, themeConfig, processedMarkdown, convertMath, convertMermaid);
     }
 
     return cleanedHtml;
@@ -999,6 +1045,167 @@ function getMimeType(extension: string): string {
 }
 
 /**
+ * 扩展 SVG viewBox，避免文字被裁剪（尤其是 Mermaid）
+ */
+function expandSvgViewBox(svg: SVGSVGElement, padding: number = 12): void {
+    try {
+        const bbox = (svg as SVGGraphicsElement).getBBox();
+        if (!bbox || !isFinite(bbox.width) || !isFinite(bbox.height)) return;
+
+        const extraX = Math.max(padding, bbox.width * 0.12);
+        const extraY = Math.max(padding, bbox.height * 0.06);
+        const x = bbox.x - extraX;
+        const y = bbox.y - extraY;
+        const width = bbox.width + extraX * 2;
+        const height = bbox.height + extraY * 2;
+
+        svg.setAttribute('viewBox', `${x} ${y} ${width} ${height}`);
+        svg.setAttribute('width', width.toString());
+        svg.setAttribute('height', height.toString());
+        svg.setAttribute('preserveAspectRatio', 'xMinYMin meet');
+        svg.style.overflow = 'visible';
+    } catch (err) {
+        // ignore
+    }
+}
+
+/**
+ * 修复 Mermaid SVG 文本被裁剪的问题（clipPath / textLength）
+ */
+function fixMermaidSvgClipping(svg: SVGSVGElement, padX: number, padY: number): void {
+    try {
+        // 扩展 clipPath 内的矩形，避免裁剪文字
+        const clipRects = svg.querySelectorAll('clipPath rect');
+        clipRects.forEach(rect => {
+            const x = parseFloat(rect.getAttribute('x') || '0');
+            const y = parseFloat(rect.getAttribute('y') || '0');
+            const width = parseFloat(rect.getAttribute('width') || '0');
+            const height = parseFloat(rect.getAttribute('height') || '0');
+
+            if (isFinite(width) && width > 0) {
+                rect.setAttribute('x', (x - padX).toString());
+                rect.setAttribute('width', (width + padX * 2).toString());
+            }
+            if (isFinite(height) && height > 0) {
+                rect.setAttribute('y', (y - padY).toString());
+                rect.setAttribute('height', (height + padY * 2).toString());
+            }
+        });
+
+        // 移除 textLength / lengthAdjust，避免强制压缩导致裁剪
+        svg.querySelectorAll('text, tspan').forEach(el => {
+            el.removeAttribute('textLength');
+            el.removeAttribute('lengthAdjust');
+        });
+
+        // 兜底：移除 clipPath 及其引用，彻底避免裁剪
+        svg.querySelectorAll('[clip-path]').forEach(el => {
+            el.removeAttribute('clip-path');
+        });
+        svg.querySelectorAll('clipPath').forEach(el => el.remove());
+    } catch (err) {
+        // ignore
+    }
+}
+
+/**
+ * 扩展 Mermaid foreignObject，避免文字宽度被低估导致裁剪
+ */
+function expandMermaidForeignObjects(svg: SVGSVGElement, padX: number, padY: number): void {
+    try {
+        const foreignObjects = svg.querySelectorAll('foreignObject');
+        foreignObjects.forEach(fo => {
+            const widthAttr = fo.getAttribute('width');
+            const heightAttr = fo.getAttribute('height');
+            const width = widthAttr ? parseFloat(widthAttr) : NaN;
+            const height = heightAttr ? parseFloat(heightAttr) : NaN;
+
+            const text = (fo.textContent || '').trim();
+            if (!text || !isFinite(width)) return;
+
+            const cjkCount = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+            const otherCount = text.length - cjkCount;
+            const fontSize = 16;
+            const extra = Math.max(padX, cjkCount * fontSize * 0.6 + otherCount * fontSize * 0.2);
+
+            const xAttr = fo.getAttribute('x');
+            const x = xAttr ? parseFloat(xAttr) : 0;
+            const newWidth = width + extra;
+            fo.setAttribute('width', newWidth.toString());
+            fo.setAttribute('x', (x - extra / 2).toString());
+
+            if (isFinite(height)) {
+                const yAttr = fo.getAttribute('y');
+                const y = yAttr ? parseFloat(yAttr) : 0;
+                const newHeight = height + padY * 2;
+                fo.setAttribute('height', newHeight.toString());
+                fo.setAttribute('y', (y - padY).toString());
+            }
+
+            const div = fo.querySelector('div') as HTMLElement | null;
+            if (div) {
+                div.style.overflow = 'visible';
+                div.style.width = '100%';
+                div.style.maxWidth = 'none';
+                div.style.display = 'flex';
+                div.style.alignItems = 'center';
+                div.style.justifyContent = 'center';
+                div.style.whiteSpace = 'nowrap';
+                div.style.height = '100%';
+            }
+        });
+    } catch (err) {
+        // ignore
+    }
+}
+
+/**
+ * 清理 Mermaid SVG 中的编辑器残留节点，避免文本偏下和裁剪
+ */
+function cleanMermaidSvgTextArtifacts(svg: SVGSVGElement): void {
+    try {
+        // 移除 ProseMirror 的 trailingBreak
+        svg.querySelectorAll('br.ProseMirror-trailingBreak').forEach(br => br.remove());
+
+        // 移除仅用于占位的 nodeLabel 段落
+        svg.querySelectorAll('foreignObject p').forEach(p => {
+            const hasNodeLabel = p.querySelector('span.nodeLabel') !== null;
+            if (hasNodeLabel) {
+                p.remove();
+                return;
+            }
+            const text = (p.textContent || '').replace(/\u00a0/g, ' ').trim();
+            const hasOnlyBr = p.querySelectorAll('br').length > 0 && p.querySelectorAll('br').length === p.querySelectorAll('*').length;
+            if (text.length === 0 || hasOnlyBr) {
+                p.remove();
+            }
+        });
+
+        // 将 span.nodeLabel 内的 <p> 扁平化，避免 block 元素影响垂直居中
+        svg.querySelectorAll('span.nodeLabel > p').forEach(p => {
+            const span = p.parentElement as HTMLElement | null;
+            if (!span) return;
+            const text = (p.textContent || '').replace(/\u00a0/g, ' ').trim();
+            if (text.length > 0) {
+                span.textContent = text;
+            } else {
+                p.remove();
+            }
+        });
+
+        // 清理空 span
+        svg.querySelectorAll('foreignObject span').forEach(span => {
+            const text = (span.textContent || '').replace(/\u00a0/g, ' ').trim();
+            if (text.length === 0) {
+                span.remove();
+            }
+        });
+    } catch (err) {
+        // ignore
+    }
+}
+
+/**
  * 预处理 Markdown 内容
  * 处理一些 Obsidian 标准渲染器可能不支持的自定义语法
  */
@@ -1009,7 +1216,38 @@ function getMimeType(extension: string): string {
 function preprocessMarkdown(markdown: string): string {
     let processed = markdown;
 
-    // 1. 处理 Ruby 注音语法
+    // 0. 保护代码块，避免误转换其中的 LaTeX 语法
+    const codeBlockMap = new Map<string, string>();
+    let codeBlockId = 0;
+
+    // 保护围栏代码块 ```...```
+    processed = processed.replace(/```[\s\S]*?```/g, (match) => {
+        const id = `__CODE_BLOCK_${codeBlockId++}__`;
+        codeBlockMap.set(id, match);
+        return id;
+    });
+
+    // 保护行内代码 `...`
+    processed = processed.replace(/`[^`\n]+?`/g, (match) => {
+        const id = `__CODE_BLOCK_${codeBlockId++}__`;
+        codeBlockMap.set(id, match);
+        return id;
+    });
+
+    // 1. 转换 LaTeX 括号语法为 Obsidian 支持的 $ 语法
+
+    // \[...\] -> $$...$$
+    processed = processed.replace(/\\\[([\s\S]+?)\\\]/g, (match, tex) => {
+        return `$$${tex}$$`;
+    });
+
+    // \(...\) -> $...$
+    processed = processed.replace(/\\\(([^\n]+?)\\\)/g, (match, tex) => {
+        return `$${tex}$`;
+    });
+
+    // 2. 处理 Ruby 注音语法
+
     // 格式1: {文字|拼音} (Obsidian 社区常见) - 支持全角竖线
     processed = processed.replace(/\{ *([^\|\}｜\n]+?) *[\|｜] *([^\|\}]+?) *\}/g, (match, text, ruby) => {
         return `<ruby>${text}<rt>${ruby}</rt></ruby>`;
@@ -1023,6 +1261,12 @@ function preprocessMarkdown(markdown: string): string {
     // 格式3: [文字]^(拼音) (Markdown Furigana 插件风格)
     processed = processed.replace(/\[((?:[^\[\]]|\\\[|\\\])+?)\]\^\(((?:[^\(\)]|\\\()|\\\))+?\)/g, (match, text, ruby) => {
         return `<ruby>${text}<rt>${ruby}</rt></ruby>`;
+    });
+
+    // 3. 恢复代码块
+    codeBlockMap.forEach((code, id) => {
+        // 使用函数作为第二个参数，避免 code 中的 $ 符号被 replace 误认为特殊占位符
+        processed = processed.replace(id, () => code);
     });
 
     return processed;

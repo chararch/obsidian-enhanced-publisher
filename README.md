@@ -10,6 +10,13 @@
 
 3. **内容平台发布**：通过API将文档直接发布到内容平台。目前支持微信公众号，后续将支持更多平台。
 
+4. **特殊语法增强**：
+    - **Mermaid 渲染**：支持 Mermaid 图表，兼容微信公众号。
+    - **数学公式 (LaTeX)**：支持 LaTeX 数学公式（微信服务器会对包含 aligned/mtable 的复杂公式进行清洗导致显示不正确，如有问题请使用功能功能或图片）。
+    - **Ruby 注音**：支持中文注音符号渲染。
+
+5. **多主题系统**：内置多种主题样式。
+
 ## 安装
 
 1. 在Obsidian中打开设置
@@ -32,7 +39,8 @@
 
 1. 在编辑Markdown文档时，使用命令面板（Ctrl+P或Cmd+P），搜索并选择"以HTML形式预览"
 2. 在弹出的预览窗口中查看HTML渲染结果
-3. 点击"复制到内容平台"按钮复制内容
+3. 点击"预览"窗口顶部的工具栏，可以自由切换不同的**主题**
+4. 点击"复制到内容平台"按钮复制内容
 
 ### 发布到内容平台
 
@@ -46,7 +54,8 @@
 
 1. 启用/禁用图片自动保存功能
 2. 启用/禁用图片文件夹隐藏功能
-3. 配置微信公众号的AppID和AppSecret
+3. 切换预览界面的主题样式
+4. 配置微信公众号的 AppID 和 AppSecret
 
 ## 微信公众号集成
 
@@ -69,10 +78,11 @@ MIT
 
 ## 致谢与归属
 
-本项目是原创开发，使用了以下开源工具和库：
+本项目在开发过程中参考并借鉴了以下开源项目的技术实现与思路：
 
-- 使用 [TypeScript](https://www.typescriptlang.org/) (Apache-2.0许可证) 开发
-- 使用 [esbuild](https://esbuild.github.io/) (MIT许可证) 进行构建
-- 使用 [Obsidian API](https://github.com/obsidianmd/obsidian-api) 进行插件开发
+- [doocs/md](https://github.com/doocs/md) - 参考并使用了其优秀的 Markdown 排版与样式处理逻辑
+- [TypeScript](https://www.typescriptlang.org/) (Apache-2.0许可证)
+- [esbuild](https://esbuild.github.io/) (MIT许可证)
+- [Obsidian API](https://github.com/obsidianmd/obsidian-api)
 
-本项目不包含直接复制或修改自其他Obsidian插件的代码。如果您认为存在未归属的代码，请联系作者。
+感谢开源社区提供的优秀工具与视觉灵感。

@@ -113,7 +113,11 @@ export class FileExplorerEnhancer {
             );
 
             // 2. 查找资源文件夹元素
-            const folderPath = docPath.replace(/\.md$/, CONSTANTS.DEFAULT_ASSETS_SUFFIX);
+            const folderPath = this.assetManager.getExpectedAssetFolderPathForDocPath(docPath);
+            if (!folderPath) {
+                this.logger.debug(`无法计算资源文件夹路径: ${docPath}`);
+                return;
+            }
             const folderElement = document.querySelector(
                 `.nav-folder-title[data-path="${folderPath}"], 
                  .tree-item-self[data-path="${folderPath}"]`

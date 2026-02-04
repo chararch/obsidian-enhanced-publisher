@@ -185,16 +185,17 @@ export class EventManager {
         // 实际上，EventManager 似乎在尝试手动处理？
         // 为了修复错误，先替换常量。但最终应该委托给 AssetManager。
 
-        const oldAssetFolder = oldPath.replace(/\.md$/, CONSTANTS.DEFAULT_ASSETS_SUFFIX);
-        const newAssetFolder = newPath.replace(/\.md$/, CONSTANTS.DEFAULT_ASSETS_SUFFIX);
+        const newAssetFolder = this.assetManager.getExpectedAssetFolderPathForDocPath(newPath);
 
         // 如果目标资源文件夹已存在，先处理冲突
         try {
-            const existingTargetFolder = this.app.vault.getAbstractFileByPath(newAssetFolder);
-            if (existingTargetFolder instanceof TFolder && oldPath !== newPath) {
-                // 如果目标文件夹已存在，尝试移动到临时路径
-                const tempPath = `${newAssetFolder}-temp-${Date.now()}`;
-                await this.app.fileManager.renameFile(existingTargetFolder, tempPath);
+            if (newAssetFolder) {
+                const existingTargetFolder = this.app.vault.getAbstractFileByPath(newAssetFolder);
+                if (existingTargetFolder instanceof TFolder && oldPath !== newPath) {
+                    // 如果目标文件夹已存在，尝试移动到临时路径
+                    const tempPath = `${newAssetFolder}-temp-${Date.now()}`;
+                    await this.app.fileManager.renameFile(existingTargetFolder, tempPath);
+                }
             }
         } catch (error) {
             console.error("处理目标文件夹冲突时出错:", error);
@@ -256,14 +257,16 @@ export class EventManager {
         }
 
         // 从资源文件夹路径获取文档路径
-        const oldDocPath = oldPath.replace(CONSTANTS.DEFAULT_ASSETS_SUFFIX, '.md');
-        const newDocPath = folder.path.replace(CONSTANTS.DEFAULT_ASSETS_SUFFIX, '.md');
+        const docPath = this.assetManager.getDocumentPathFromAssetFolder(oldPath);
+        if (!docPath) {
+            return;
+        }
 
         // 检查文档是否存在
-        const docFile = this.app.vault.getAbstractFileByPath(newDocPath);
+        const docFile = this.app.vault.getAbstractFileByPath(docPath);
         if (docFile instanceof TFile) {
             // 资源文件夹被重命名，但文档存在，可能需要更新文档中的引用
-            this.assetManager.updateImageReferences(newDocPath, oldPath, folder.path);
+            this.assetManager.updateImageReferences(docPath, oldPath, folder.path);
         }
     }
 
@@ -338,7 +341,7 @@ export class EventManager {
      * @param path 文件夹路径
      */
     private isAssetFolder(path: string): boolean {
-        return path.endsWith(CONSTANTS.DEFAULT_ASSETS_SUFFIX);
+        return this.assetManager.isAssetFolder(path);
     }
 
     /**
