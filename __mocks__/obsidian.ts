@@ -53,14 +53,30 @@ export class Plugin {
     constructor() { }
 }
 
+export class PluginSettingTab {
+    app: App;
+    plugin: Plugin;
+    containerEl: HTMLElement;
+    constructor(app: App, plugin: Plugin) {
+        this.app = app;
+        this.plugin = plugin;
+        this.containerEl = document.createElement('div');
+    }
+    display(): void {}
+}
+
 export class Setting {
-    constructor() { }
+    constructor(containerEl?: HTMLElement) { }
     setName() { return this; }
     setDesc() { return this; }
     addText() { return this; }
     addTextArea() { return this; }
     addToggle() { return this; }
+    setClass() { return this; }
+    setHeading() { return this; }
+    addDropdown() { return this; }
 }
+
 
 export class Modal {
     constructor() { }
