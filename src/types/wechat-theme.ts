@@ -7,7 +7,8 @@ export enum WechatThemeStyle {
     WARM_ORANGE = 'warm-orange',           // 温暖
     FRESH_GREEN = 'fresh-green',           // 清新
     ELEGANT_VIOLET = 'elegant-violet',     // 优雅
-    CHINESE_STYLE = 'chinese-style'        // 国风
+    CHINESE_STYLE = 'chinese-style',       // 国风
+    KAMI = 'kami'                           // Kami（暖纸墨蓝）
 }
 
 /**
@@ -26,5 +27,6 @@ export const THEME_STYLE_NAMES: Record<WechatThemeStyle, string> = {
     [WechatThemeStyle.WARM_ORANGE]: '温暖',
     [WechatThemeStyle.FRESH_GREEN]: '清新',
     [WechatThemeStyle.ELEGANT_VIOLET]: '优雅',
-    [WechatThemeStyle.CHINESE_STYLE]: '国风'
+    [WechatThemeStyle.CHINESE_STYLE]: '国风',
+    [WechatThemeStyle.KAMI]: 'Kami'
 };
